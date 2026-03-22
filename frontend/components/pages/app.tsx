@@ -2,31 +2,49 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+
 import { useFrame } from '@/components/farcaster-provider'
-import { GameScreen, type WalletUiState } from '@/components/game-screen'
-import { OnboardingScreen } from '@/components/onboarding-screen'
 import {
-  usePasskeyTradeTransfer,
+  type ActivePositionUiState,
+  GameScreen,
+  type ProtocolUiState,
+  type WalletUiState,
+} from '@/components/game-screen'
+import { OnboardingScreen } from '@/components/onboarding-screen'
+import { OrdaRampView, type RampMode } from '@/components/orda-ramp-sheet'
+import {
+  usePasskeyProtocolActions,
   usePasskeyWallet,
 } from '@/components/passkey-wallet-provider'
 import { PasskeyWalletView } from '@/components/passkey-wallet-screen'
-import { OrdaRampView, type RampMode } from '@/components/orda-ramp-sheet'
+import { monadMainnet, monadUsdc } from '@/lib/chains'
 import {
-  monadMainnet,
-  monadTradeSimulationRecipient,
-  monadUsdc,
-} from '@/lib/chains'
-import { erc20Abi, parseUnits } from 'viem'
+  binaryAbi,
+  binaryContractAddress,
+  protocolPositionResponseSchema,
+  protocolSnapshotSchema,
+} from '@/lib/protocol'
+import {
+  type Hex,
+  decodeEventLog,
+  erc20Abi,
+  formatUnits,
+  parseUnits,
+} from 'viem'
 import {
   useAccount,
   useBalance,
   useConnect,
   useDisconnect,
+  usePublicClient,
   useSwitchChain,
   useWriteContract,
 } from 'wagmi'
 
 type OverlayMode = RampMode | 'passkey'
+
+const POSITION_STORAGE_PREFIX = 'urubu:active-position'
 
 function shortenAddress(address?: string | null) {
   if (!address) return ''
@@ -34,30 +52,99 @@ function shortenAddress(address?: string | null) {
 }
 
 function getErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : 'Falha ao conectar a carteira.'
+  return error instanceof Error
+    ? error.message
+    : 'Falha ao conectar a carteira.'
+}
+
+function formatUsdcAmount(rawValue: bigint, digits = 2) {
+  return `${Number(formatUnits(rawValue, monadUsdc.decimals)).toFixed(digits)} ${monadUsdc.symbol}`
+}
+
+function formatOraclePrice(rawValue: bigint) {
+  const value = Number(formatUnits(rawValue, monadUsdc.decimals))
+  return `US$ ${value.toLocaleString('pt-BR', {
+    minimumFractionDigits: 4,
+    maximumFractionDigits: 6,
+  })}`
+}
+
+function getPositionStorageKey(address: string) {
+  return `${POSITION_STORAGE_PREFIX}:${address.toLowerCase()}`
+}
+
+function parseBinaryEvent(
+  logs: Array<{ data: Hex; topics: readonly Hex[] }>,
+  eventName: 'PositionOpened' | 'PositionSettled',
+) {
+  for (const log of logs) {
+    try {
+      const decoded = decodeEventLog({
+        abi: binaryAbi,
+        data: log.data,
+        topics: log.topics as [Hex, ...Hex[]],
+      })
+
+      if (decoded.eventName === eventName) {
+        return decoded
+      }
+    } catch {
+      // Ignore unrelated logs in the receipt.
+    }
+  }
+
+  return null
+}
+
+async function requestJson<T>(input: RequestInfo) {
+  const response = await fetch(input, {
+    cache: 'no-store',
+  })
+  const payload = (await response.json().catch(() => null)) as
+    | { error?: string }
+    | T
+    | null
+
+  if (!response.ok) {
+    throw new Error(
+      payload &&
+        typeof payload === 'object' &&
+        'error' in payload &&
+        payload.error
+        ? payload.error
+        : `Erro HTTP ${response.status}`,
+    )
+  }
+
+  return payload as T
 }
 
 export default function App() {
   const [overlayMode, setOverlayMode] = useState<OverlayMode | null>(null)
   const [walletError, setWalletError] = useState<string | null>(null)
+  const [knownPositionId, setKnownPositionId] = useState<bigint | null>(null)
+  const [recoveredForAddress, setRecoveredForAddress] = useState<string | null>(
+    null,
+  )
   const { isEthProviderAvailable, isLoading, isSDKLoaded } = useFrame()
   const { address, chainId, connector, isConnected } = useAccount()
   const { connectAsync, connectors, isPending: isConnecting } = useConnect()
   const { disconnect } = useDisconnect()
   const { switchChainAsync, isPending: isSwitchingChain } = useSwitchChain()
   const { writeContractAsync } = useWriteContract()
+  const publicClient = usePublicClient({ chainId: monadMainnet.id })
+  const queryClient = useQueryClient()
 
   const passkeyWallet = usePasskeyWallet()
-  const passkeyTradeTransfer = usePasskeyTradeTransfer()
+  const passkeyProtocolActions = usePasskeyProtocolActions()
 
   const canUsePasskey = passkeyWallet.enabled && !isEthProviderAvailable
   const passkeyConnected = canUsePasskey && passkeyWallet.connected
-  const knownAddress =
-    isConnected
-      ? address
-      : canUsePasskey
-        ? (passkeyWallet.address as `0x${string}` | null) ?? undefined
-        : undefined
+  const knownAddress = isConnected
+    ? address
+    : canUsePasskey
+      ? ((passkeyWallet.address as `0x${string}` | null) ?? undefined)
+      : undefined
   const showOnboarding =
     !isEthProviderAvailable &&
     canUsePasskey &&
@@ -68,7 +155,7 @@ export default function App() {
   const activeAddress = isConnected
     ? address
     : passkeyConnected
-      ? (passkeyWallet.address as `0x${string}` | null) ?? undefined
+      ? ((passkeyWallet.address as `0x${string}` | null) ?? undefined)
       : undefined
   const onMonad = isConnected ? chainId === monadMainnet.id : passkeyConnected
 
@@ -81,11 +168,119 @@ export default function App() {
     },
   })
 
+  const protocolSnapshotQuery = useQuery({
+    queryKey: ['protocol-snapshot', knownPositionId?.toString() ?? 'none'],
+    queryFn: async () => {
+      const searchParams = new URLSearchParams()
+
+      if (knownPositionId !== null) {
+        searchParams.set('positionId', knownPositionId.toString())
+      }
+
+      const payload = await requestJson<unknown>(
+        `/api/protocol/snapshot${searchParams.size ? `?${searchParams.toString()}` : ''}`,
+      )
+
+      return protocolSnapshotSchema.parse(payload)
+    },
+    refetchInterval: 8_000,
+  })
+
+  const persistKnownPositionId = useCallback(
+    (nextId: bigint | null) => {
+      setKnownPositionId(nextId)
+
+      if (typeof window === 'undefined' || !activeAddress) return
+
+      const storageKey = getPositionStorageKey(activeAddress)
+
+      if (nextId === null) {
+        window.localStorage.removeItem(storageKey)
+        return
+      }
+
+      window.localStorage.setItem(storageKey, nextId.toString())
+    },
+    [activeAddress],
+  )
+
   useEffect(() => {
     if (overlayMode === 'passkey' && passkeyConnected) {
       setOverlayMode(null)
     }
   }, [overlayMode, passkeyConnected])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    if (!activeAddress) {
+      setKnownPositionId(null)
+      return
+    }
+
+    const storedValue = window.localStorage.getItem(
+      getPositionStorageKey(activeAddress),
+    )
+
+    if (storedValue && /^\d+$/.test(storedValue)) {
+      setKnownPositionId(BigInt(storedValue))
+      return
+    }
+
+    setKnownPositionId(null)
+  }, [activeAddress])
+
+  useEffect(() => {
+    if (!walletConnected || !activeAddress || knownPositionId !== null) return
+
+    const normalizedAddress = activeAddress.toLowerCase()
+
+    if (recoveredForAddress === normalizedAddress) return
+
+    let cancelled = false
+    setRecoveredForAddress(normalizedAddress)
+
+    void requestJson<unknown>(
+      `/api/protocol/active-position?trader=${activeAddress}`,
+    )
+      .then((payload) => protocolPositionResponseSchema.parse(payload))
+      .then((result) => {
+        if (cancelled || !result.id) return
+        persistKnownPositionId(BigInt(result.id))
+      })
+      .catch(() => {
+        // Keep the app usable even if recovery is unavailable.
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    activeAddress,
+    knownPositionId,
+    persistKnownPositionId,
+    recoveredForAddress,
+    walletConnected,
+  ])
+
+  useEffect(() => {
+    const snapshot = protocolSnapshotQuery.data
+
+    if (!snapshot || knownPositionId === null || !snapshot.position) return
+
+    if (
+      snapshot.position.settled ||
+      (activeAddress &&
+        snapshot.position.trader.toLowerCase() !== activeAddress.toLowerCase())
+    ) {
+      persistKnownPositionId(null)
+    }
+  }, [
+    activeAddress,
+    knownPositionId,
+    persistKnownPositionId,
+    protocolSnapshotQuery.data,
+  ])
 
   const openPasskeyWallet = useCallback(() => {
     setWalletError(null)
@@ -123,7 +318,13 @@ export default function App() {
     }
 
     setWalletError('Passkeys nao estao disponiveis neste navegador.')
-  }, [canUsePasskey, connectAsync, connectors, isEthProviderAvailable, openPasskeyWallet])
+  }, [
+    canUsePasskey,
+    connectAsync,
+    connectors,
+    isEthProviderAvailable,
+    openPasskeyWallet,
+  ])
 
   const switchToMonad = useCallback(async () => {
     setWalletError(null)
@@ -190,6 +391,95 @@ export default function App() {
       setWalletError(getErrorMessage(error))
     }
   }, [passkeyWallet])
+
+  const activePosition = useMemo<ActivePositionUiState | null>(() => {
+    const snapshot = protocolSnapshotQuery.data
+    const position = snapshot?.position
+
+    if (!position || position.settled) return null
+
+    const stake = BigInt(position.stake)
+    const payout = BigInt(position.currentPayout)
+    const entryPrice = BigInt(position.entryPrice)
+    const liquidationPrice = BigInt(position.liquidationPrice)
+    const stakeValue = Number(formatUnits(stake, monadUsdc.decimals))
+    const payoutValue = Number(formatUnits(payout, monadUsdc.decimals))
+    const pnlValue = payoutValue - stakeValue
+
+    return {
+      contractPayoutLabel: formatUsdcAmount(payout),
+      contractPayoutValue: payoutValue,
+      direction: position.isLong ? 'up' : 'down',
+      entryPrice: Number(formatUnits(entryPrice, monadUsdc.decimals)),
+      id: position.id,
+      liquidationPrice: Number(
+        formatUnits(liquidationPrice, monadUsdc.decimals),
+      ),
+      openTimeMs: position.openTime * 1000,
+      pnlPercent: stakeValue > 0 ? (pnlValue / stakeValue) * 100 : 0,
+      pnlValue,
+      settleAtMs: position.openTime * 1000 + snapshot.duration * 1000,
+      stakeLabel: formatUsdcAmount(stake),
+      stakeValue,
+    }
+  }, [protocolSnapshotQuery.data])
+
+  const protocolState = useMemo<ProtocolUiState>(() => {
+    const snapshot = protocolSnapshotQuery.data
+
+    if (!snapshot) {
+      return {
+        binaryAddress: binaryContractAddress,
+        durationSeconds: 120,
+        error:
+          protocolSnapshotQuery.error instanceof Error
+            ? protocolSnapshotQuery.error.message
+            : null,
+        feeBps: 0,
+        loading: protocolSnapshotQuery.isLoading,
+        maxPayoutLabel: `-- ${monadUsdc.symbol}`,
+        oracleAddress: '',
+        oraclePriceLabel: '--',
+        paused: false,
+        utilizationLabel: '--',
+        vaultAddress: '',
+        vaultLockedLabel: `-- ${monadUsdc.symbol}`,
+        vaultTvlLabel: `-- ${monadUsdc.symbol}`,
+      }
+    }
+
+    const freeAssets = BigInt(snapshot.vaultTotalAssets)
+    const lockedAssets = BigInt(snapshot.vaultLockedAssets)
+    const totalAssets = freeAssets + lockedAssets
+    const utilizationBps =
+      totalAssets > BigInt(0)
+        ? Number((lockedAssets * BigInt(10_000)) / totalAssets)
+        : 0
+
+    return {
+      binaryAddress: snapshot.binaryAddress,
+      durationSeconds: snapshot.duration,
+      error:
+        protocolSnapshotQuery.error instanceof Error
+          ? protocolSnapshotQuery.error.message
+          : null,
+      feeBps: snapshot.feeBps,
+      loading: protocolSnapshotQuery.isFetching && !protocolSnapshotQuery.data,
+      maxPayoutLabel: formatUsdcAmount(BigInt(snapshot.maxPayout)),
+      oracleAddress: snapshot.oracleAddress,
+      oraclePriceLabel: formatOraclePrice(BigInt(snapshot.oraclePrice)),
+      paused: snapshot.paused,
+      utilizationLabel: `${(utilizationBps / 100).toFixed(2)}%`,
+      vaultAddress: snapshot.vaultAddress,
+      vaultLockedLabel: formatUsdcAmount(lockedAssets),
+      vaultTvlLabel: formatUsdcAmount(totalAssets),
+    }
+  }, [
+    protocolSnapshotQuery.data,
+    protocolSnapshotQuery.error,
+    protocolSnapshotQuery.isFetching,
+    protocolSnapshotQuery.isLoading,
+  ])
 
   const walletState = useMemo<WalletUiState>(() => {
     const isBusy =
@@ -266,6 +556,7 @@ export default function App() {
       status,
     }
   }, [
+    activeAddress,
     canUsePasskey,
     chainId,
     connector?.name,
@@ -278,7 +569,6 @@ export default function App() {
     knownAddress,
     onMonad,
     passkeyConnected,
-    passkeyWallet.connected,
     passkeyWallet.hasWallet,
     passkeyWallet.isAuthenticating,
     passkeyWallet.isDisconnecting,
@@ -287,52 +577,186 @@ export default function App() {
     walletError,
   ])
 
-  const simulateTradeTransfer = useCallback(async () => {
-    setWalletError(null)
+  const openProtocolTrade = useCallback(
+    async ({
+      amount,
+      direction,
+    }: { amount: number; direction: 'up' | 'down' }) => {
+      if (!walletConnected || !activeAddress || !publicClient) {
+        throw new Error('Conecte sua carteira primeiro.')
+      }
 
-    if (!activeAddress || !walletConnected) {
-      throw new Error('Conecte sua carteira primeiro.')
-    }
+      const grossAmount = parseUnits(amount.toFixed(2), monadUsdc.decimals)
 
-    const amount = parseUnits('1', monadUsdc.decimals)
+      let approvalHash: Hex | null = null
+      let openHash: Hex
 
-    if (passkeyConnected) {
-      const hash = await passkeyTradeTransfer.sendTransfer({
-        amount,
-        recipient: monadTradeSimulationRecipient,
-        tokenAddress: monadUsdc.address,
+      if (passkeyConnected) {
+        const result = await passkeyProtocolActions.openPosition({
+          amount: grossAmount,
+          contractAddress: binaryContractAddress,
+          isLong: direction === 'up',
+          tokenAddress: monadUsdc.address,
+        })
+
+        approvalHash = result.approvalHash
+        openHash = result.openHash
+      } else {
+        if (chainId !== monadMainnet.id) {
+          throw new Error('Troque para a Monad Mainnet primeiro.')
+        }
+
+        const allowance = await publicClient.readContract({
+          address: monadUsdc.address,
+          abi: erc20Abi,
+          functionName: 'allowance',
+          args: [activeAddress, binaryContractAddress],
+        })
+
+        if (allowance < grossAmount) {
+          approvalHash = await writeContractAsync({
+            account: activeAddress,
+            address: monadUsdc.address,
+            abi: erc20Abi,
+            functionName: 'approve',
+            chainId: monadMainnet.id,
+            args: [binaryContractAddress, grossAmount],
+          })
+
+          await publicClient.waitForTransactionReceipt({
+            hash: approvalHash,
+          })
+        }
+
+        openHash = await writeContractAsync({
+          account: activeAddress,
+          address: binaryContractAddress,
+          abi: binaryAbi,
+          functionName: 'openPosition',
+          chainId: monadMainnet.id,
+          args: [direction === 'up', grossAmount],
+        })
+      }
+
+      const receipt = await publicClient.waitForTransactionReceipt({
+        hash: openHash,
       })
 
-      return {
-        amountLabel: `1.00 ${monadUsdc.symbol}`,
-        receiverLabel: shortenAddress(monadTradeSimulationRecipient),
-        transactionLabel: shortenAddress(hash),
+      const openedEvent = parseBinaryEvent(receipt.logs, 'PositionOpened')
+
+      if (!openedEvent || openedEvent.eventName !== 'PositionOpened') {
+        throw new Error(
+          'Nao foi possivel identificar a posicao aberta no recibo.',
+        )
       }
+
+      const id = openedEvent.args.id
+      const stake = openedEvent.args.stake
+
+      if (typeof id !== 'bigint' || typeof stake !== 'bigint') {
+        throw new Error('O recibo da transacao nao trouxe os dados da posicao.')
+      }
+
+      persistKnownPositionId(id)
+      await queryClient.invalidateQueries({ queryKey: ['protocol-snapshot'] })
+
+      return {
+        amountLabel: `${amount.toFixed(2)} ${monadUsdc.symbol}`,
+        approvalLabel: approvalHash ? shortenAddress(approvalHash) : null,
+        positionLabel: `#${id.toString()}`,
+        stakeLabel: formatUsdcAmount(stake),
+        transactionLabel: shortenAddress(openHash),
+      }
+    },
+    [
+      activeAddress,
+      chainId,
+      passkeyConnected,
+      passkeyProtocolActions,
+      publicClient,
+      queryClient,
+      persistKnownPositionId,
+      walletConnected,
+      writeContractAsync,
+    ],
+  )
+
+  const settleProtocolTrade = useCallback(async () => {
+    if (
+      !walletConnected ||
+      !activeAddress ||
+      !publicClient ||
+      !activePosition
+    ) {
+      throw new Error('Nenhuma posicao ativa foi encontrada.')
     }
 
-    if (chainId !== monadMainnet.id) {
-      throw new Error('Troque para a Monad Mainnet primeiro.')
+    const positionId = BigInt(activePosition.id)
+    let hash: Hex
+
+    if (passkeyConnected) {
+      hash = await passkeyProtocolActions.settlePosition({
+        contractAddress: binaryContractAddress,
+        positionId,
+      })
+    } else {
+      if (chainId !== monadMainnet.id) {
+        throw new Error('Troque para a Monad Mainnet primeiro.')
+      }
+
+      hash = await writeContractAsync({
+        account: activeAddress,
+        address: binaryContractAddress,
+        abi: binaryAbi,
+        functionName: 'settle',
+        chainId: monadMainnet.id,
+        args: [positionId],
+      })
     }
 
-    const hash = await writeContractAsync({
-      account: activeAddress,
-      address: monadUsdc.address,
-      abi: erc20Abi,
-      functionName: 'transfer',
-      chainId: monadMainnet.id,
-      args: [monadTradeSimulationRecipient, amount],
-    })
+    const receipt = await publicClient.waitForTransactionReceipt({ hash })
+    const settledEvent = parseBinaryEvent(receipt.logs, 'PositionSettled')
+
+    if (!settledEvent || settledEvent.eventName !== 'PositionSettled') {
+      throw new Error('Nao foi possivel identificar a liquidacao no recibo.')
+    }
+
+    const payout = settledEvent.args.payout
+    const exitPrice = settledEvent.args.exitPrice
+
+    if (typeof payout !== 'bigint' || typeof exitPrice !== 'bigint') {
+      throw new Error(
+        'O recibo da transacao nao trouxe os dados do encerramento.',
+      )
+    }
+
+    const payoutValue = Number(formatUnits(payout, monadUsdc.decimals))
+    const pnlValue = payoutValue - activePosition.stakeValue
+    const pnlPercent =
+      activePosition.stakeValue > 0
+        ? (pnlValue / activePosition.stakeValue) * 100
+        : 0
+
+    persistKnownPositionId(null)
+    await queryClient.invalidateQueries({ queryKey: ['protocol-snapshot'] })
 
     return {
-      amountLabel: `1.00 ${monadUsdc.symbol}`,
-      receiverLabel: shortenAddress(monadTradeSimulationRecipient),
+      exitPrice: Number(formatUnits(exitPrice, monadUsdc.decimals)),
+      payoutValue,
+      pnlPercent,
+      pnlValue,
+      tone: (pnlValue >= 0 ? 'win' : 'lose') as 'win' | 'lose',
       transactionLabel: shortenAddress(hash),
     }
   }, [
     activeAddress,
+    activePosition,
     chainId,
     passkeyConnected,
-    passkeyTradeTransfer,
+    passkeyProtocolActions,
+    publicClient,
+    queryClient,
+    persistKnownPositionId,
     walletConnected,
     writeContractAsync,
   ])
@@ -378,6 +802,8 @@ export default function App() {
 
   return (
     <GameScreen
+      activePosition={activePosition}
+      protocol={protocolState}
       wallet={walletState}
       showPasskeyWalletButton={false}
       onConnectWallet={connectWallet}
@@ -388,7 +814,8 @@ export default function App() {
       onOpenOffRamp={() => setOverlayMode('offRamp')}
       onOpenOnRamp={() => setOverlayMode('onRamp')}
       onOpenPasskeyWallet={openPasskeyWallet}
-      onSimulateTrade={simulateTradeTransfer}
+      onPlaceTrade={openProtocolTrade}
+      onSettleTrade={settleProtocolTrade}
     />
   )
 }

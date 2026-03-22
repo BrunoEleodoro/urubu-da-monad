@@ -47,7 +47,7 @@ export function PasskeyWalletView({
   const description = !enabled
     ? 'Este navegador nao expoe WebAuthn, entao aqui so o fluxo de carteira do Farcaster fica disponivel.'
     : hasWallet
-      ? 'Essa carteira vive neste navegador dentro de urubu.money. Cada operacao pede a confirmacao da passkey antes do envio real de 1 USDC na Monad.'
+      ? 'Essa carteira vive neste navegador dentro de urubu.money. Cada operacao pede a confirmacao da passkey antes de aprovar USDC, abrir e encerrar posicoes reais na Monad.'
       : 'Crie uma carteira no navegador protegida pela passkey do seu dispositivo. Sem extensao, sem email e sem carteiras injetadas.'
 
   const handleCopyAddress = useCallback(async () => {
@@ -95,11 +95,7 @@ export function PasskeyWalletView({
             <p className={styles.description}>{description}</p>
           </div>
 
-          <button
-            type="button"
-            className={styles.closeButton}
-            onClick={onBack}
-          >
+          <button type="button" className={styles.closeButton} onClick={onBack}>
             Voltar ao jogo
           </button>
         </header>
@@ -201,7 +197,9 @@ export function PasskeyWalletView({
                   }}
                   disabled={busy}
                 >
-                  {busy ? 'Criando carteira com passkey...' : 'Criar carteira com passkey'}
+                  {busy
+                    ? 'Criando carteira com passkey...'
+                    : 'Criar carteira com passkey'}
                 </button>
 
                 <p className={styles.helper}>

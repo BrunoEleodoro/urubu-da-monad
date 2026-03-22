@@ -2,15 +2,19 @@
 
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useState,
 } from 'react'
 
-import { Authentication, Registration } from 'webauthx/client'
 import type { Address, Hex } from 'viem'
+import { Authentication, Registration } from 'webauthx/client'
 
-import { type PasskeyWalletSnapshot, passkeyWalletSnapshotSchema } from '@/lib/passkey-wallet'
+import {
+  type PasskeyWalletSnapshot,
+  passkeyWalletSnapshotSchema,
+} from '@/lib/passkey-wallet'
 
 const PASSKEY_SESSION_ENDPOINT = '/api/passkeys/session'
 
@@ -18,6 +22,18 @@ interface PasskeyTransferParams {
   amount: bigint
   recipient: Address
   tokenAddress: Address
+}
+
+interface PasskeyOpenPositionParams {
+  amount: bigint
+  contractAddress: Address
+  isLong: boolean
+  tokenAddress: Address
+}
+
+interface PasskeySettlePositionParams {
+  contractAddress: Address
+  positionId: bigint
 }
 
 interface PasskeyWalletContextValue extends PasskeyWalletSnapshot {
@@ -31,6 +47,10 @@ interface PasskeyWalletContextValue extends PasskeyWalletSnapshot {
   authenticate: () => Promise<void>
   disconnect: () => Promise<void>
   sendTransfer: (params: PasskeyTransferParams) => Promise<Hex>
+  openPosition: (
+    params: PasskeyOpenPositionParams,
+  ) => Promise<{ approvalHash: Hex | null; openHash: Hex }>
+  settlePosition: (params: PasskeySettlePositionParams) => Promise<Hex>
 }
 
 const fallbackSnapshot: PasskeyWalletSnapshot = {
@@ -40,7 +60,9 @@ const fallbackSnapshot: PasskeyWalletSnapshot = {
   label: null,
 }
 
-const PasskeyWalletContext = createContext<PasskeyWalletContextValue | null>(null)
+const PasskeyWalletContext = createContext<PasskeyWalletContextValue | null>(
+  null,
+)
 
 function getErrorMessage(error: unknown) {
   if (error instanceof Error && error.message) return error.message
@@ -56,7 +78,10 @@ async function requestJson<T>(input: RequestInfo, init?: RequestInit) {
 
   if (!response.ok) {
     throw new Error(
-      payload && typeof payload === 'object' && 'error' in payload && payload.error
+      payload &&
+        typeof payload === 'object' &&
+        'error' in payload &&
+        payload.error
         ? payload.error
         : `Erro HTTP ${response.status}`,
     )
@@ -70,30 +95,32 @@ export function PasskeyWalletProvider({
 }: {
   children: React.ReactNode
 }) {
-  const [snapshot, setSnapshot] = useState<PasskeyWalletSnapshot>(fallbackSnapshot)
+  const [snapshot, setSnapshot] =
+    useState<PasskeyWalletSnapshot>(fallbackSnapshot)
   const [isAuthenticating, setIsAuthenticating] = useState(false)
   const [isDisconnecting, setIsDisconnecting] = useState(false)
   const [isReady, setIsReady] = useState(false)
   const [hasPlatformSupport, setHasPlatformSupport] = useState(false)
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     const nextSnapshot = passkeyWalletSnapshotSchema.parse(
       await requestJson<PasskeyWalletSnapshot>(PASSKEY_SESSION_ENDPOINT),
     )
     setSnapshot(nextSnapshot)
     setIsReady(true)
-  }
+  }, [])
 
   useEffect(() => {
     setHasPlatformSupport(
-      typeof window !== 'undefined' && typeof window.PublicKeyCredential !== 'undefined',
+      typeof window !== 'undefined' &&
+        typeof window.PublicKeyCredential !== 'undefined',
     )
 
     void refresh().catch(() => {
       setSnapshot(fallbackSnapshot)
       setIsReady(true)
     })
-  }, [])
+  }, [refresh])
 
   const registerWallet = async (label?: string) => {
     setIsAuthenticating(true)
@@ -109,15 +136,20 @@ export function PasskeyWalletProvider({
         method: 'POST',
       })
 
-      const credential = await Registration.create({ options: options as never })
+      const credential = await Registration.create({
+        options: options as never,
+      })
       const nextSnapshot = passkeyWalletSnapshotSchema.parse(
-        await requestJson<PasskeyWalletSnapshot>('/api/passkeys/register/verify', {
-          body: JSON.stringify({ credential }),
-          headers: {
-            'Content-Type': 'application/json',
+        await requestJson<PasskeyWalletSnapshot>(
+          '/api/passkeys/register/verify',
+          {
+            body: JSON.stringify({ credential }),
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            method: 'POST',
           },
-          method: 'POST',
-        }),
+        ),
       )
 
       setSnapshot(nextSnapshot)
@@ -183,17 +215,70 @@ export function PasskeyWalletProvider({
   }: PasskeyTransferParams) => {
     await authenticate()
 
-    const { hash } = await requestJson<{ hash: Hex }>('/api/passkeys/transfer', {
-      body: JSON.stringify({
-        amount: amount.toString(),
-        recipient,
-        tokenAddress,
-      }),
-      headers: {
-        'Content-Type': 'application/json',
+    const { hash } = await requestJson<{ hash: Hex }>(
+      '/api/passkeys/transfer',
+      {
+        body: JSON.stringify({
+          amount: amount.toString(),
+          recipient,
+          tokenAddress,
+        }),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        method: 'POST',
       },
-      method: 'POST',
-    })
+    )
+
+    return hash
+  }
+
+  const openPosition = async ({
+    amount,
+    contractAddress,
+    isLong,
+    tokenAddress,
+  }: PasskeyOpenPositionParams) => {
+    await authenticate()
+
+    return requestJson<{ approvalHash: Hex | null; openHash: Hex }>(
+      '/api/passkeys/protocol',
+      {
+        body: JSON.stringify({
+          action: 'open-position',
+          amount: amount.toString(),
+          contractAddress,
+          isLong,
+          tokenAddress,
+        }),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        method: 'POST',
+      },
+    )
+  }
+
+  const settlePosition = async ({
+    contractAddress,
+    positionId,
+  }: PasskeySettlePositionParams) => {
+    await authenticate()
+
+    const { hash } = await requestJson<{ hash: Hex }>(
+      '/api/passkeys/protocol',
+      {
+        body: JSON.stringify({
+          action: 'settle-position',
+          contractAddress,
+          positionId: positionId.toString(),
+        }),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        method: 'POST',
+      },
+    )
 
     return hash
   }
@@ -209,7 +294,9 @@ export function PasskeyWalletProvider({
     disconnect,
     refresh,
     registerWallet,
+    openPosition,
     sendTransfer,
+    settlePosition,
   }
 
   return (
@@ -228,11 +315,12 @@ export function usePasskeyWallet() {
   return context
 }
 
-export function usePasskeyTradeTransfer() {
+export function usePasskeyProtocolActions() {
   const context = usePasskeyWallet()
 
   return {
     isSending: context.isAuthenticating,
-    sendTransfer: context.sendTransfer,
+    openPosition: context.openPosition,
+    settlePosition: context.settlePosition,
   }
 }
