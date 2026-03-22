@@ -11,13 +11,7 @@ import {
   type ProtocolUiState,
   type WalletUiState,
 } from '@/components/game-screen'
-import { OnboardingScreen } from '@/components/onboarding-screen'
 import { OrdaRampView, type RampMode } from '@/components/orda-ramp-sheet'
-import {
-  usePasskeyProtocolActions,
-  usePasskeyWallet,
-} from '@/components/passkey-wallet-provider'
-import { PasskeyWalletView } from '@/components/passkey-wallet-screen'
 import { monadMainnet, monadUsdc } from '@/lib/chains'
 import {
   binaryAbi,
@@ -34,6 +28,7 @@ import {
   parseUnits,
 } from 'viem'
 import {
+  type Connector,
   useAccount,
   useBalance,
   useConnect,
@@ -43,7 +38,7 @@ import {
   useWriteContract,
 } from 'wagmi'
 
-type OverlayMode = RampMode | 'passkey'
+type OverlayMode = RampMode
 
 const POSITION_STORAGE_PREFIX = 'urubu:active-position'
 const BPS_DENOMINATOR = BigInt(10_000)
@@ -80,6 +75,12 @@ function formatOraclePrice(rawValue: bigint) {
 
 function getPositionStorageKey(address: string) {
   return `${POSITION_STORAGE_PREFIX}:${address.toLowerCase()}`
+}
+
+function hasInjectedWalletProvider() {
+  if (typeof window === 'undefined') return false
+
+  return Boolean((window as Window & { ethereum?: unknown }).ethereum)
 }
 
 function calculateStakeFromGrossAmount(grossAmount: bigint, feeBps: bigint) {
@@ -188,29 +189,11 @@ export default function App() {
   const publicClient = usePublicClient({ chainId: monadMainnet.id })
   const queryClient = useQueryClient()
 
-  const passkeyWallet = usePasskeyWallet()
-  const passkeyProtocolActions = usePasskeyProtocolActions()
-
-  const canUsePasskey = passkeyWallet.enabled && !isEthProviderAvailable
-  const passkeyConnected = canUsePasskey && passkeyWallet.connected
-  const knownAddress = isConnected
-    ? address
-    : canUsePasskey
-      ? ((passkeyWallet.address as `0x${string}` | null) ?? undefined)
-      : undefined
-  const showOnboarding =
-    !isEthProviderAvailable &&
-    canUsePasskey &&
-    passkeyWallet.isReady &&
-    !passkeyWallet.hasWallet &&
-    overlayMode === null
-  const walletConnected = isConnected || passkeyConnected
-  const activeAddress = isConnected
-    ? address
-    : passkeyConnected
-      ? ((passkeyWallet.address as `0x${string}` | null) ?? undefined)
-      : undefined
-  const onMonad = isConnected ? chainId === monadMainnet.id : passkeyConnected
+  const hasInjectedProvider = hasInjectedWalletProvider()
+  const knownAddress = address
+  const walletConnected = isConnected
+  const activeAddress = address
+  const onMonad = chainId === monadMainnet.id
 
   const { data: usdcBalance } = useBalance({
     address: activeAddress,
@@ -256,12 +239,6 @@ export default function App() {
     },
     [activeAddress],
   )
-
-  useEffect(() => {
-    if (overlayMode === 'passkey' && passkeyConnected) {
-      setOverlayMode(null)
-    }
-  }, [overlayMode, passkeyConnected])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -335,54 +312,41 @@ export default function App() {
     protocolSnapshotQuery.data,
   ])
 
-  const openPasskeyWallet = useCallback(() => {
-    setWalletError(null)
-    setOverlayMode('passkey')
-  }, [])
-
   const connectWallet = useCallback(async () => {
     setWalletError(null)
 
-    if (isEthProviderAvailable) {
-      const farcasterConnector = connectors.find(
-        (candidateConnector) => candidateConnector.id === 'farcaster',
-      )
+    const injectedConnector = connectors.find(
+      (candidateConnector) => candidateConnector.id === 'injected',
+    )
+    const farcasterConnector = connectors.find(
+      (candidateConnector) => candidateConnector.id === 'farcaster',
+    )
 
-      if (!farcasterConnector) {
-        setWalletError('Conector da carteira Farcaster indisponivel.')
-        return
-      }
-
+    const connectWith = async (nextConnector: Connector) => {
       try {
         await connectAsync({
-          connector: farcasterConnector,
-          chainId: monadMainnet.id,
+          connector: nextConnector,
         })
-        return
       } catch (error) {
         setWalletError(getErrorMessage(error))
-        return
       }
     }
 
-    if (canUsePasskey) {
-      openPasskeyWallet()
+    if (hasInjectedProvider && injectedConnector) {
+      await connectWith(injectedConnector)
       return
     }
 
-    setWalletError('Passkeys nao estao disponiveis neste navegador.')
-  }, [
-    canUsePasskey,
-    connectAsync,
-    connectors,
-    isEthProviderAvailable,
-    openPasskeyWallet,
-  ])
+    if (isEthProviderAvailable && farcasterConnector) {
+      await connectWith(farcasterConnector)
+      return
+    }
+
+    setWalletError('Nenhuma carteira injetada foi encontrada neste navegador.')
+  }, [connectAsync, connectors, hasInjectedProvider, isEthProviderAvailable])
 
   const switchToMonad = useCallback(async () => {
     setWalletError(null)
-
-    if (passkeyConnected) return
 
     try {
       await switchChainAsync({ chainId: monadMainnet.id })
@@ -391,59 +355,15 @@ export default function App() {
         error instanceof Error ? error.message : 'Falha ao trocar de rede.',
       )
     }
-  }, [passkeyConnected, switchChainAsync])
+  }, [switchChainAsync])
 
   const disconnectWallet = useCallback(async () => {
     setWalletError(null)
 
     if (isConnected) {
       disconnect()
-      return
     }
-
-    if (passkeyWallet.connected) {
-      try {
-        await passkeyWallet.disconnect()
-      } catch (error) {
-        setWalletError(getErrorMessage(error))
-      }
-    }
-  }, [disconnect, isConnected, passkeyWallet])
-
-  const createPasskeyWallet = useCallback(
-    async (label?: string) => {
-      setWalletError(null)
-
-      try {
-        await passkeyWallet.registerWallet(label)
-        setOverlayMode(null)
-      } catch (error) {
-        setWalletError(getErrorMessage(error))
-      }
-    },
-    [passkeyWallet],
-  )
-
-  const unlockPasskeyWallet = useCallback(async () => {
-    setWalletError(null)
-
-    try {
-      await passkeyWallet.authenticate()
-      setOverlayMode(null)
-    } catch (error) {
-      setWalletError(getErrorMessage(error))
-    }
-  }, [passkeyWallet])
-
-  const disconnectPasskeyWallet = useCallback(async () => {
-    setWalletError(null)
-
-    try {
-      await passkeyWallet.disconnect()
-    } catch (error) {
-      setWalletError(getErrorMessage(error))
-    }
-  }, [passkeyWallet])
+  }, [disconnect, isConnected])
 
   const activePosition = useMemo<ActivePositionUiState | null>(() => {
     const snapshot = protocolSnapshotQuery.data
@@ -547,43 +467,31 @@ export default function App() {
   ])
 
   const walletState = useMemo<WalletUiState>(() => {
-    const isBusy =
-      isConnecting ||
-      isSwitchingChain ||
-      passkeyWallet.isAuthenticating ||
-      passkeyWallet.isDisconnecting
-    const hasWalletOption = isEthProviderAvailable || canUsePasskey
+    const isBusy = isConnecting || isSwitchingChain
+    const hasWalletOption = hasInjectedProvider || isEthProviderAvailable
     const action = isConnected
       ? onMonad
         ? 'disconnect'
         : 'switch-chain'
-      : passkeyConnected
-        ? 'disconnect'
-        : 'connect'
+      : 'connect'
 
-    let status = 'Abra no Warpcast ou use uma carteira com passkey'
+    let status = 'Use uma carteira injetada ou abra no Warpcast'
 
     if (walletError) {
       status = walletError
     } else if (isBusy) {
       status = 'Preparando sua carteira...'
-    } else if (passkeyConnected) {
-      status = 'Conectado com carteira por passkey'
     } else if (isConnected && onMonad) {
       status = `Conectado com ${connector?.name ?? 'carteira'}`
     } else if (isConnected) {
       status = 'Troque para a Monad Mainnet'
-    } else if (canUsePasskey && passkeyWallet.hasWallet) {
-      status = 'Desbloqueie sua carteira com passkey'
-    } else if (canUsePasskey) {
-      status = 'Crie sua carteira com passkey'
+    } else if (hasInjectedProvider) {
+      status = 'Conecte sua carteira injetada'
     } else if (isEthProviderAvailable) {
       status = 'Conecte sua carteira do Farcaster'
     } else if (isLoading) {
       status = 'Carregando cliente do Farcaster...'
-    } else if (isSDKLoaded) {
-      status = 'Provedor de carteira indisponivel'
-    } else if (hasWalletOption) {
+    } else if (isSDKLoaded || hasWalletOption) {
       status = 'Conecte sua carteira'
     }
 
@@ -591,13 +499,9 @@ export default function App() {
       ? 'Conectando...'
       : walletConnected
         ? shortenAddress(activeAddress) || 'Carteira conectada'
-        : canUsePasskey
-          ? passkeyWallet.hasWallet
-            ? 'Desbloquear'
-            : 'Criar carteira'
-          : hasWalletOption
-            ? 'Conectar carteira'
-            : 'Indisponivel'
+        : hasWalletOption
+          ? 'Conectar carteira'
+          : 'Indisponivel'
 
     return {
       connected: walletConnected,
@@ -611,20 +515,18 @@ export default function App() {
         ? `${Number(usdcBalance.formatted).toFixed(2)} ${usdcBalance.symbol}`
         : '',
       usdcBalanceValue: usdcBalance ? Number(usdcBalance.formatted) : null,
-      chainLabel: passkeyConnected
-        ? 'Carteira por passkey na Monad Mainnet'
-        : onMonad
-          ? `${connector?.name ?? 'Carteira'} na Monad Mainnet`
-          : chainId
-            ? `Rede ${chainId}`
-            : '',
+      chainLabel: onMonad
+        ? `${connector?.name ?? 'Carteira'} na Monad Mainnet`
+        : chainId
+          ? `Rede ${chainId}`
+          : '',
       status,
     }
   }, [
     activeAddress,
-    canUsePasskey,
     chainId,
     connector?.name,
+    hasInjectedProvider,
     isConnected,
     isConnecting,
     isEthProviderAvailable,
@@ -633,10 +535,6 @@ export default function App() {
     isSwitchingChain,
     knownAddress,
     onMonad,
-    passkeyConnected,
-    passkeyWallet.hasWallet,
-    passkeyWallet.isAuthenticating,
-    passkeyWallet.isDisconnecting,
     usdcBalance,
     walletConnected,
     walletError,
@@ -709,54 +607,41 @@ export default function App() {
       }
 
       let approvalHash: Hex | null = null
-      let openHash: Hex
 
-      if (passkeyConnected) {
-        const result = await passkeyProtocolActions.openPosition({
-          amount: grossAmount,
-          contractAddress: binaryContractAddress,
-          isLong: direction === 'up',
-          tokenAddress: monadUsdc.address,
-        })
+      if (chainId !== monadMainnet.id) {
+        throw new Error('Troque para a Monad Mainnet primeiro.')
+      }
 
-        approvalHash = result.approvalHash
-        openHash = result.openHash
-      } else {
-        if (chainId !== monadMainnet.id) {
-          throw new Error('Troque para a Monad Mainnet primeiro.')
-        }
+      const allowance = await publicClient.readContract({
+        address: monadUsdc.address,
+        abi: erc20Abi,
+        functionName: 'allowance',
+        args: [activeAddress, binaryContractAddress],
+      })
 
-        const allowance = await publicClient.readContract({
+      if (allowance < grossAmount) {
+        approvalHash = await writeContractAsync({
+          account: activeAddress,
           address: monadUsdc.address,
           abi: erc20Abi,
-          functionName: 'allowance',
-          args: [activeAddress, binaryContractAddress],
+          functionName: 'approve',
+          chainId: monadMainnet.id,
+          args: [binaryContractAddress, grossAmount],
         })
 
-        if (allowance < grossAmount) {
-          approvalHash = await writeContractAsync({
-            account: activeAddress,
-            address: monadUsdc.address,
-            abi: erc20Abi,
-            functionName: 'approve',
-            chainId: monadMainnet.id,
-            args: [binaryContractAddress, grossAmount],
-          })
-
-          await publicClient.waitForTransactionReceipt({
-            hash: approvalHash,
-          })
-        }
-
-        openHash = await writeContractAsync({
-          account: activeAddress,
-          address: binaryContractAddress,
-          abi: binaryAbi,
-          functionName: 'openPosition',
-          chainId: monadMainnet.id,
-          args: [direction === 'up', grossAmount],
+        await publicClient.waitForTransactionReceipt({
+          hash: approvalHash,
         })
       }
+
+      const openHash = await writeContractAsync({
+        account: activeAddress,
+        address: binaryContractAddress,
+        abi: binaryAbi,
+        functionName: 'openPosition',
+        chainId: monadMainnet.id,
+        args: [direction === 'up', grossAmount],
+      })
 
       const receipt = await publicClient.waitForTransactionReceipt({
         hash: openHash,
@@ -791,8 +676,6 @@ export default function App() {
     [
       activeAddress,
       chainId,
-      passkeyConnected,
-      passkeyProtocolActions,
       publicClient,
       queryClient,
       persistKnownPositionId,
@@ -812,27 +695,19 @@ export default function App() {
     }
 
     const positionId = BigInt(activePosition.id)
-    let hash: Hex
 
-    if (passkeyConnected) {
-      hash = await passkeyProtocolActions.settlePosition({
-        contractAddress: binaryContractAddress,
-        positionId,
-      })
-    } else {
-      if (chainId !== monadMainnet.id) {
-        throw new Error('Troque para a Monad Mainnet primeiro.')
-      }
-
-      hash = await writeContractAsync({
-        account: activeAddress,
-        address: binaryContractAddress,
-        abi: binaryAbi,
-        functionName: 'settle',
-        chainId: monadMainnet.id,
-        args: [positionId],
-      })
+    if (chainId !== monadMainnet.id) {
+      throw new Error('Troque para a Monad Mainnet primeiro.')
     }
+
+    const hash = await writeContractAsync({
+      account: activeAddress,
+      address: binaryContractAddress,
+      abi: binaryAbi,
+      functionName: 'settle',
+      chainId: monadMainnet.id,
+      args: [positionId],
+    })
 
     const receipt = await publicClient.waitForTransactionReceipt({ hash })
     const settledEvent = parseBinaryEvent(receipt.logs, 'PositionSettled')
@@ -872,43 +747,12 @@ export default function App() {
     activeAddress,
     activePosition,
     chainId,
-    passkeyConnected,
-    passkeyProtocolActions,
     publicClient,
     queryClient,
     persistKnownPositionId,
     walletConnected,
     writeContractAsync,
   ])
-
-  if (overlayMode === 'passkey') {
-    return (
-      <PasskeyWalletView
-        address={passkeyWallet.address}
-        addressLabel={shortenAddress(passkeyWallet.address)}
-        busy={passkeyWallet.isAuthenticating || passkeyWallet.isDisconnecting}
-        connected={passkeyWallet.connected}
-        enabled={passkeyWallet.enabled}
-        error={walletError}
-        hasWallet={passkeyWallet.hasWallet}
-        label={passkeyWallet.label}
-        onBack={() => setOverlayMode(null)}
-        onCreateWallet={createPasskeyWallet}
-        onDisconnectWallet={disconnectPasskeyWallet}
-        onUnlockWallet={unlockPasskeyWallet}
-      />
-    )
-  }
-
-  if (showOnboarding) {
-    return (
-      <OnboardingScreen
-        busy={passkeyWallet.isAuthenticating}
-        error={walletError}
-        onCreateWallet={createPasskeyWallet}
-      />
-    )
-  }
 
   if (overlayMode) {
     return (
@@ -933,7 +777,7 @@ export default function App() {
       }}
       onOpenOffRamp={() => setOverlayMode('offRamp')}
       onOpenOnRamp={() => setOverlayMode('onRamp')}
-      onOpenPasskeyWallet={openPasskeyWallet}
+      onOpenPasskeyWallet={async () => {}}
       onPlaceTrade={openProtocolTrade}
       onSettleTrade={settleProtocolTrade}
     />
