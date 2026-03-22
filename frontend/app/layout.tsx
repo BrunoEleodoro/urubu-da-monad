@@ -22,7 +22,7 @@ export const metadata: Metadata = {
     template: '%s | Urubu do Nomad',
   },
   description:
-    'Live MON price game styled for Monad and packaged as a Farcaster mini app.',
+    'Jogo de preco da MON com dados ao vivo, visual da Monad e pronto para rodar como mini app no Farcaster.',
   applicationName: 'Urubu do Nomad',
   alternates: {
     canonical: APP_URL,
@@ -31,7 +31,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: 'Urubu do Nomad',
     description:
-      'Live MON price game styled for Monad and packaged as a Farcaster mini app.',
+      'Jogo de preco da MON com dados ao vivo, visual da Monad e pronto para rodar como mini app no Farcaster.',
     url: APP_URL,
     siteName: 'Urubu do Nomad',
     type: 'website',
@@ -48,7 +48,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: 'Urubu do Nomad',
     description:
-      'Live MON price game styled for Monad and packaged as a Farcaster mini app.',
+      'Jogo de preco da MON com dados ao vivo, visual da Monad e pronto para rodar como mini app no Farcaster.',
     images: ['/images/og.png'],
   },
   icons: {
@@ -75,10 +75,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en">
-      <head>
-        <link rel="stylesheet" href="/vendor/orda-widget.css" />
-      </head>
+    <html lang="pt-BR">
       <body className={`${dmSans.variable} ${jetBrainsMono.variable}`}>
         <Providers>{children}</Providers>
       </body>

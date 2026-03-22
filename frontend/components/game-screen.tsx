@@ -1,6 +1,7 @@
 'use client'
 
 import {
+  type CSSProperties,
   startTransition,
   useCallback,
   useDeferredValue,
@@ -31,6 +32,14 @@ const MAX_BET = 1
 const MIN_BET = 0.1
 const SIMULATED_TRADE_AMOUNT = 1
 const PAD = { top: 24, right: 80, bottom: 40, left: 16 }
+const CONFETTI_PIECES = Array.from({ length: 24 }, (_, index) => ({
+  id: index,
+  left: `${4 + ((index * 11) % 92)}%`,
+  delay: `${(index % 6) * 0.06}s`,
+  duration: `${1.8 + (index % 5) * 0.18}s`,
+  rotation: `${-40 + (index % 8) * 11}deg`,
+  drift: `${-36 + (index % 9) * 9}px`,
+}))
 
 type Direction = 'up' | 'down'
 type WalletAction = 'connect' | 'disconnect' | 'switch-chain'
@@ -79,6 +88,7 @@ export interface WalletUiState {
   connecting: boolean
   interactive: boolean
   action: WalletAction
+  buttonLabel: string
   address: string
   addressLabel: string
   usdcBalanceLabel: string
@@ -90,15 +100,18 @@ export interface WalletUiState {
 interface TradeSimulationResult {
   amountLabel: string
   receiverLabel: string
+  transactionLabel: string
 }
 
 interface GameScreenProps {
   wallet: WalletUiState
+  showPasskeyWalletButton: boolean
   onConnectWallet: () => Promise<void>
   onSwitchToMonad: () => Promise<void>
   onDisconnectWallet: () => void
   onOpenOffRamp: () => void
   onOpenOnRamp: () => void
+  onOpenPasskeyWallet: () => void
   onSimulateTrade: (input: {
     direction: Direction
     amount: number
@@ -161,8 +174,8 @@ function axisUsdDigits(min: number, max: number) {
 
 function fmtUsd(value: number, digits = usdDigits(value)) {
   return (
-    '$' +
-    value.toLocaleString('en-US', {
+    'US$ ' +
+    value.toLocaleString('pt-BR', {
       minimumFractionDigits: digits,
       maximumFractionDigits: digits,
     })
@@ -178,7 +191,7 @@ function fmtHi(value: number) {
 }
 
 function fmtTime(seconds: number) {
-  return new Date(seconds * 1000).toLocaleTimeString('en-US', {
+  return new Date(seconds * 1000).toLocaleTimeString('pt-BR', {
     hour12: false,
     hour: '2-digit',
     minute: '2-digit',
@@ -192,13 +205,30 @@ function entryKey(entry: PriceEntry) {
 
 function getErrorMessage(error: unknown) {
   if (error instanceof Error && error.message) return error.message
-  return 'Unable to simulate the 1 USDC transfer.'
+  return 'Nao foi possivel enviar a transferencia de 1 USDC.'
+}
+
+async function copyText(value: string) {
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value)
+    return
+  }
+
+  const textArea = document.createElement('textarea')
+  textArea.value = value
+  textArea.setAttribute('readonly', '')
+  textArea.style.position = 'absolute'
+  textArea.style.left = '-9999px'
+  document.body.appendChild(textArea)
+  textArea.select()
+  document.execCommand('copy')
+  document.body.removeChild(textArea)
 }
 
 async function fetchLatestPrice() {
   const response = await fetch(`${LATEST_API}?ids[]=${FEED}`)
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`)
+    throw new Error(`Erro HTTP ${response.status}`)
   }
 
   const data = (await response.json()) as {
@@ -217,7 +247,7 @@ async function fetchLatestPrice() {
   }
 
   if (!data.parsed?.length) {
-    throw new Error('No parsed price returned')
+    throw new Error('Nenhum preco valido foi retornado.')
   }
 
   return parseEntry(data.parsed[0])
@@ -225,11 +255,13 @@ async function fetchLatestPrice() {
 
 export function GameScreen({
   wallet,
+  showPasskeyWalletButton,
   onConnectWallet,
   onSwitchToMonad,
   onDisconnectWallet,
   onOpenOffRamp,
   onOpenOnRamp,
+  onOpenPasskeyWallet,
   onSimulateTrade,
 }: GameScreenProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -274,9 +306,10 @@ export function GameScreen({
   const [tradePendingDirection, setTradePendingDirection] =
     useState<Direction | null>(null)
   const [roundResult, setRoundResult] = useState<RoundResult | null>(null)
+  const [addressCopied, setAddressCopied] = useState(false)
   const [tradeNotice, setTradeNotice] = useState<TradeNotice>({
     tone: 'default',
-    message: `Each LONG/SHORT simulates ${SIMULATED_TRADE_AMOUNT.toFixed(2)} ${monadUsdc.symbol} to ${shortenAddress(monadTradeSimulationRecipient)} on ${CHAIN}.`,
+    message: `Cada operacao envia ${SIMULATED_TRADE_AMOUNT.toFixed(2)} ${monadUsdc.symbol} para ${shortenAddress(monadTradeSimulationRecipient)} na ${CHAIN}.`,
   })
 
   const deferredCache = useDeferredValue(cache)
@@ -342,10 +375,10 @@ export function GameScreen({
         hintNode.style.display = ''
         hintNode.textContent =
           roundStateRef.current === 'open'
-            ? 'Place a bet ▲ UP or ▼ DOWN'
+            ? 'Escolha alta ▲ ou baixa ▼'
             : hasMarketData
-              ? 'Next round starting...'
-              : 'Connecting to the live MON/USD feed...'
+              ? 'Proxima rodada abrindo...'
+              : 'Conectando ao feed ao vivo de MON/USD...'
         return
       }
 
@@ -360,8 +393,8 @@ export function GameScreen({
       amountNode.textContent = `${pctPnl >= 0 ? '+' : ''}${pctPnl.toFixed(4)}%`
       amountNode.dataset.tone = won ? 'win' : 'lose'
       detailNode.textContent = `${bet.direction === 'up' ? '▲' : '▼'} ${
-        won ? '+$' : '-$'
-      }${Math.abs(totalPnl).toFixed(6)} | Entry ${fmtHi(bet.entryPrice)} | Now ${fmtHi(currentPrice)}`
+        won ? '+US$' : '-US$'
+      }${Math.abs(totalPnl).toFixed(6)} | Entrada ${fmtHi(bet.entryPrice)} | Agora ${fmtHi(currentPrice)}`
       detailNode.dataset.tone = won ? 'win' : 'lose'
       hintNode.style.display = 'none'
     },
@@ -425,7 +458,7 @@ export function GameScreen({
         context.font = '13px var(--font-mono), monospace'
         context.fillStyle = '#3e3e5a'
         context.textAlign = 'center'
-        context.fillText('Waiting for Pyth oracle data...', width / 2, height / 2)
+        context.fillText('Aguardando dados do oraculo Pyth...', width / 2, height / 2)
         return
       }
 
@@ -486,7 +519,7 @@ export function GameScreen({
       for (let index = 0; index < renderPoints.length; index += timeStep) {
         const timeValue = new Date(renderPoints[index].t)
         context.fillText(
-          timeValue.toLocaleTimeString('en-US', {
+          timeValue.toLocaleTimeString('pt-BR', {
             hour12: false,
             hour: '2-digit',
             minute: '2-digit',
@@ -512,7 +545,7 @@ export function GameScreen({
         context.fillStyle = '#f59e0b'
         context.textAlign = 'left'
         context.fillText(
-          `ENTRY ${fmtUsd(entryPrice, axisUsdDigits(priceMin, priceMax))}`,
+          `ENTRADA ${fmtUsd(entryPrice, axisUsdDigits(priceMin, priceMax))}`,
           width - PAD.right + 6,
           entryY - 6,
         )
@@ -698,7 +731,7 @@ export function GameScreen({
             setRoundResult({
               tone: won ? 'win' : 'lose',
               text: `${pctResult >= 0 ? '+' : ''}${pctResult.toFixed(4)}%`,
-              sub: `\u{1F985} ${won ? '+$' : '-$'}${Math.abs(totalPnl).toFixed(6)}`,
+              sub: `\u{1F985} ${won ? '+US$' : '-US$'}${Math.abs(totalPnl).toFixed(6)}`,
             })
           }
 
@@ -900,6 +933,13 @@ export function GameScreen({
     await onConnectWallet()
   }, [onConnectWallet, onDisconnectWallet, onSwitchToMonad, wallet.action])
 
+  const handleCopyAddress = useCallback(async () => {
+    if (!wallet.address) return
+
+    await copyText(wallet.address)
+    setAddressCopied(true)
+  }, [wallet.address])
+
   const handlePlaceBet = useCallback(
     async (direction: Direction) => {
       if (
@@ -914,7 +954,7 @@ export function GameScreen({
       if (wallet.connecting) {
         setTradeNotice({
           tone: 'pending',
-          message: 'Finish the wallet action in Warpcast to continue.',
+          message: 'Conclua o fluxo da carteira para continuar.',
         })
         return
       }
@@ -922,7 +962,7 @@ export function GameScreen({
       if (!wallet.connected) {
         setTradeNotice({
           tone: 'error',
-          message: 'Connect your wallet to simulate the 1 USDC transfer.',
+          message: 'Conecte sua carteira para enviar a transferencia de 1 USDC.',
         })
         await onConnectWallet()
         return
@@ -931,7 +971,7 @@ export function GameScreen({
       if (wallet.action === 'switch-chain') {
         setTradeNotice({
           tone: 'error',
-          message: 'Switch to Monad Mainnet before opening a position.',
+          message: 'Troque para a Monad Mainnet antes de abrir uma posicao.',
         })
         await onSwitchToMonad()
         return
@@ -943,7 +983,7 @@ export function GameScreen({
       ) {
         setTradeNotice({
           tone: 'error',
-          message: `You need at least ${SIMULATED_TRADE_AMOUNT.toFixed(2)} ${monadUsdc.symbol} to simulate this transfer.`,
+          message: `Voce precisa de pelo menos ${SIMULATED_TRADE_AMOUNT.toFixed(2)} ${monadUsdc.symbol} para enviar essa transferencia.`,
         })
         return
       }
@@ -953,7 +993,7 @@ export function GameScreen({
       if (amount > demoBalanceRef.current) {
         setTradeNotice({
           tone: 'error',
-          message: 'Not enough round balance to open this position.',
+          message: 'Saldo da rodada insuficiente para abrir essa posicao.',
         })
         return
       }
@@ -962,7 +1002,7 @@ export function GameScreen({
       setTradePendingDirection(direction)
       setTradeNotice({
         tone: 'pending',
-        message: `Simulating ${SIMULATED_TRADE_AMOUNT.toFixed(2)} ${monadUsdc.symbol} on ${CHAIN}...`,
+        message: `Confirme a transferencia de ${SIMULATED_TRADE_AMOUNT.toFixed(2)} ${monadUsdc.symbol} na sua carteira...`,
       })
 
       try {
@@ -971,7 +1011,7 @@ export function GameScreen({
         if (roundStateRef.current !== 'open' || activeBetRef.current) {
           setTradeNotice({
             tone: 'error',
-            message: 'The round closed before the simulation finished.',
+            message: 'A rodada fechou antes da transferencia ser enviada.',
           })
           return
         }
@@ -979,7 +1019,7 @@ export function GameScreen({
         const livePrice = currentDisplayPrice(performance.now())
 
         if (livePrice === null) {
-          throw new Error('Live price unavailable.')
+          throw new Error('Preco ao vivo indisponivel.')
         }
 
         demoBalanceRef.current -= amount
@@ -1001,7 +1041,7 @@ export function GameScreen({
 
         setTradeNotice({
           tone: 'success',
-          message: `Simulation ready: ${simulation.amountLabel} -> ${simulation.receiverLabel}.`,
+          message: `Transferencia enviada: ${simulation.amountLabel} para ${simulation.receiverLabel} (${simulation.transactionLabel}).`,
         })
 
         if (window.innerWidth <= 768) {
@@ -1077,33 +1117,45 @@ export function GameScreen({
     }
   }, [connectLiveStream, fetchOnce, renderLoop, resizeCanvas, startRound, stopFeedTransports])
 
+  useEffect(() => {
+    if (!addressCopied) return
+
+    const timeout = window.setTimeout(() => {
+      setAddressCopied(false)
+    }, 1800)
+
+    return () => {
+      window.clearTimeout(timeout)
+    }
+  }, [addressCopied])
+
   const reversedCache = useMemo(() => [...deferredCache].reverse(), [deferredCache])
 
   const tradeMeta = useMemo(() => {
     if (activeBet) {
-      return `${activeBet.direction === 'up' ? 'LONG' : 'SHORT'} $${activeBet.amount.toFixed(2)} live`
+      return `${activeBet.direction === 'up' ? 'ALTA' : 'BAIXA'} US$ ${activeBet.amount.toFixed(2)} ao vivo`
     }
 
     if (roundState === 'open') {
-      return 'Open long or short'
+      return 'Abra uma posicao de alta ou baixa'
     }
 
-    return hasMarketData ? 'Waiting for the next round' : 'Connecting to live price'
+    return hasMarketData ? 'Aguardando a proxima rodada' : 'Conectando ao preco ao vivo'
   }, [activeBet, hasMarketData, roundState])
 
   const walletDisabled = !wallet.interactive && !wallet.connected
   const longLabel =
     tradePendingDirection === 'up'
-      ? 'SIMULATING'
+      ? 'ENVIANDO'
       : activeBet?.direction === 'up'
-        ? 'PLACED'
-        : 'LONG'
+        ? 'ABERTA'
+        : 'ALTA'
   const shortLabel =
     tradePendingDirection === 'down'
-      ? 'SIMULATING'
+      ? 'ENVIANDO'
       : activeBet?.direction === 'down'
-        ? 'PLACED'
-        : 'SHORT'
+        ? 'ABERTA'
+        : 'BAIXA'
   const buttonsDisabled =
     !hasMarketData || roundState !== 'open' || activeBet !== null || tradePendingDirection !== null
 
@@ -1128,17 +1180,17 @@ export function GameScreen({
                   className={styles.rampBtn}
                   onClick={onOpenOnRamp}
                 >
-                  On-ramp
+                  Depositar
                 </button>
                 <button
                   type="button"
                   className={cn(styles.rampBtn, styles.rampBtnSecondary)}
                   onClick={onOpenOffRamp}
                 >
-                  Off-ramp
+                  Sacar
                 </button>
               </div>
-              <span className={styles.rampMeta}>BRL and PIX via Orda</span>
+              <span className={styles.rampMeta}>BRL e PIX via Orda</span>
             </div>
 
             <button
@@ -1155,24 +1207,46 @@ export function GameScreen({
             >
               <span className={styles.walletIndicator} />
               <span className={styles.walletCopy}>
-                <span className={styles.walletLabel}>
-                  {wallet.connecting
-                    ? 'Connecting...'
-                    : wallet.connected
-                      ? wallet.addressLabel || 'Wallet connected'
-                      : wallet.interactive
-                        ? 'Connect wallet'
-                        : 'Warpcast only'}
-                </span>
+                <span className={styles.walletLabel}>{wallet.buttonLabel}</span>
                 <span className={styles.walletSub}>
                   {wallet.connecting
-                    ? 'Approve in Warpcast'
+                    ? 'Conclua o fluxo da carteira'
                     : wallet.connected
-                      ? wallet.usdcBalanceLabel || wallet.chainLabel || 'Tap to disconnect'
-                      : wallet.status || 'Use your Farcaster wallet'}
+                      ? wallet.usdcBalanceLabel || wallet.chainLabel || 'Toque para desconectar'
+                      : wallet.status || 'Use sua carteira do Farcaster'}
                 </span>
               </span>
             </button>
+
+            {wallet.address ? (
+              <button
+                type="button"
+                className={cn(
+                  styles.addressBtn,
+                  addressCopied && styles.addressBtnCopied,
+                )}
+                onClick={() => {
+                  void handleCopyAddress()
+                }}
+              >
+                <span className={styles.addressBtnLabel}>
+                  {addressCopied ? 'Endereco copiado' : 'Receber USDC'}
+                </span>
+                <span className={styles.addressBtnValue}>
+                  {wallet.addressLabel || shortenAddress(wallet.address)}
+                </span>
+              </button>
+            ) : null}
+
+            {showPasskeyWalletButton ? (
+              <button
+                type="button"
+                className={styles.passkeyBtn}
+                onClick={onOpenPasskeyWallet}
+              >
+                Carteira com passkey
+              </button>
+            ) : null}
 
             <div className={styles.balanceBox}>
               <span className={styles.curr}>{monadUsdc.symbol}</span>
@@ -1181,7 +1255,7 @@ export function GameScreen({
                   ? '...'
                   : wallet.connected
                     ? wallet.usdcBalanceLabel ||
-                      (wallet.action === 'switch-chain' ? 'Switch chain' : '0.00 USDC')
+                      (wallet.action === 'switch-chain' ? 'Trocar rede' : '0,00 USDC')
                     : '--'}
               </span>
             </div>
@@ -1193,13 +1267,33 @@ export function GameScreen({
             <div className={styles.chartArea}>
               <canvas ref={canvasRef} className={styles.priceCanvas} />
 
+              {roundResult?.tone === 'win' ? (
+                <div className={styles.confettiBurst} aria-hidden="true">
+                  {CONFETTI_PIECES.map((piece) => (
+                    <span
+                      key={piece.id}
+                      className={styles.confettiPiece}
+                      style={
+                        {
+                          left: piece.left,
+                          animationDelay: piece.delay,
+                          animationDuration: piece.duration,
+                          ['--confetti-rotate' as string]: piece.rotation,
+                          ['--confetti-drift' as string]: piece.drift,
+                        } as CSSProperties
+                      }
+                    />
+                  ))}
+                </div>
+              ) : null}
+
               <div className={styles.pnlOverlay}>
                 <div
                   ref={pnlAmountRef}
                   className={styles.pnlAmount}
                   data-tone="idle"
                 >
-                  $0.000000
+                  US$ 0,000000
                 </div>
                 <div
                   ref={pnlDetailRef}
@@ -1210,7 +1304,7 @@ export function GameScreen({
                 </div>
                 <div ref={pnlTimerRef} className={styles.pnlTimer} />
                 <div ref={pnlHintRef} className={styles.pnlHint}>
-                  Place a bet to start
+                  Escolha uma operacao para comecar
                 </div>
               </div>
 
@@ -1247,7 +1341,7 @@ export function GameScreen({
 
             <div className={styles.priceTableWrap}>
               <div className={styles.ptHdr}>
-                Pyth Oracle Feed <span>({deferredCache.length}/{MAX})</span>
+                Feed do Oraculo Pyth <span>({deferredCache.length}/{MAX})</span>
               </div>
 
               {reversedCache.length > 0 ? (
@@ -1255,11 +1349,11 @@ export function GameScreen({
                   <thead>
                     <tr>
                       <th>#</th>
-                      <th>Price</th>
+                      <th>Preco</th>
                       <th>&Delta;</th>
-                      <th>Conf</th>
+                      <th>Confianca</th>
                       <th>EMA</th>
-                      <th>Time</th>
+                      <th>Horario</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1297,7 +1391,7 @@ export function GameScreen({
                 </table>
               ) : (
                 <div className={styles.empty}>
-                  Connecting to the live MON/USD feed...
+                  Conectando ao feed ao vivo de MON/USD...
                 </div>
               )}
             </div>
@@ -1315,7 +1409,7 @@ export function GameScreen({
               onClick={() => setTradeDrawerOpen((open) => !open)}
             >
               <span className={styles.tradeToggleCopy}>
-                <span className={styles.tradeToggleLabel}>Trade</span>
+                <span className={styles.tradeToggleLabel}>Operacao</span>
                 <span className={styles.tradeToggleMeta}>{tradeMeta}</span>
               </span>
               <span
@@ -1329,11 +1423,11 @@ export function GameScreen({
             </button>
 
             <div className={styles.tradePanelBody}>
-              <div className={styles.betSidebarHdr}>Trade</div>
+              <div className={styles.betSidebarHdr}>Operacao</div>
 
               <div className={styles.betCard}>
-                <div className={styles.tradeCopyTitle}>Set your position</div>
-                <div className={styles.tradeCopySub}>One amount. Pick a side.</div>
+                <div className={styles.tradeCopyTitle}>Defina sua posicao</div>
+                <div className={styles.tradeCopySub}>Um valor. Escolha um lado.</div>
                 <div
                   className={cn(
                     styles.tradeCallout,
@@ -1393,7 +1487,7 @@ export function GameScreen({
                       className={styles.bpQuickButton}
                       onClick={() => setBetAmount(clampBet(value).toFixed(2))}
                     >
-                      {value < 1 ? `${Math.round(value * 100)}c` : '$1'}
+                      {value < 1 ? `${Math.round(value * 100)}c` : 'US$ 1'}
                     </button>
                   ))}
                 </div>
@@ -1438,14 +1532,14 @@ export function GameScreen({
                   )}
                 >
                   {activeBet?.direction === 'up'
-                    ? '▲ LONG'
+                    ? '▲ ALTA'
                     : activeBet?.direction === 'down'
-                      ? '▼ SHORT'
+                      ? '▼ BAIXA'
                       : ''}
                 </div>
                 <div className={styles.basAmt}>
                   {activeBet
-                    ? `$${activeBet.amount.toFixed(2)} @ ${fmtHi(activeBet.entryPrice)}`
+                    ? `US$ ${activeBet.amount.toFixed(2)} @ ${fmtHi(activeBet.entryPrice)}`
                     : ''}
                 </div>
               </div>
