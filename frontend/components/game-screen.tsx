@@ -99,6 +99,8 @@ export interface ProtocolUiState {
   error: string | null
   feeBps: number
   loading: boolean
+  maxOpenAmountLabel: string
+  maxOpenAmountValue: number
   maxPayoutLabel: string
   oracleAddress: string
   oraclePriceLabel: string
@@ -1004,6 +1006,23 @@ export function GameScreen({
 
       const amount = clampBet(Number.parseFloat(betAmount) || 0.5)
 
+      if (protocol.maxOpenAmountValue < MIN_BET) {
+        setTradeNotice({
+          tone: 'error',
+          message:
+            'O vault nao tem capacidade suficiente agora. Aguarde liquidez livre ou uma posicao ser encerrada.',
+        })
+        return
+      }
+
+      if (amount > protocol.maxOpenAmountValue) {
+        setTradeNotice({
+          tone: 'error',
+          message: `Valor acima do maximo atual do vault (${protocol.maxOpenAmountLabel}).`,
+        })
+        return
+      }
+
       if (
         wallet.usdcBalanceValue !== null &&
         wallet.usdcBalanceValue < amount
@@ -1050,6 +1069,8 @@ export function GameScreen({
       onPlaceTrade,
       onSwitchToMonad,
       protocol.paused,
+      protocol.maxOpenAmountLabel,
+      protocol.maxOpenAmountValue,
       wallet.action,
       wallet.connected,
       wallet.connecting,
@@ -1225,11 +1246,13 @@ export function GameScreen({
       : activeBet?.direction === 'down'
         ? 'ABERTA'
         : 'BAIXA'
+  const hasTradeCapacity = protocol.maxOpenAmountValue >= MIN_BET
   const activePositionReady = Boolean(
     activePosition && roundState === 'cooldown',
   )
   const buttonsDisabled =
     !hasMarketData ||
+    !hasTradeCapacity ||
     protocol.paused ||
     roundState !== 'open' ||
     activeBet !== null ||
@@ -1556,6 +1579,12 @@ export function GameScreen({
                     </span>
                   </div>
                   <div className={styles.protocolStat}>
+                    <span className={styles.protocolStatLabel}>Max agora</span>
+                    <span className={styles.protocolStatValue}>
+                      {protocol.maxOpenAmountLabel}
+                    </span>
+                  </div>
+                  <div className={styles.protocolStat}>
                     <span className={styles.protocolStatLabel}>TVL vault</span>
                     <span className={styles.protocolStatValue}>
                       {protocol.vaultTvlLabel}
@@ -1580,7 +1609,8 @@ export function GameScreen({
                 <div className={styles.tradeCopyTitle}>Defina sua posicao</div>
                 <div className={styles.tradeCopySub}>
                   Um valor. Escolha um lado. O contrato abre uma posicao real em
-                  USDC na Monad.
+                  USDC na Monad. Maximo disponivel agora:{' '}
+                  {protocol.maxOpenAmountLabel}.
                 </div>
                 <div
                   className={cn(
@@ -1603,7 +1633,10 @@ export function GameScreen({
                       inputMode="decimal"
                       step="0.1"
                       min={MIN_BET}
-                      max={MAX_BET}
+                      max={Math.min(
+                        MAX_BET,
+                        Math.max(protocol.maxOpenAmountValue, MIN_BET),
+                      )}
                       value={betAmount}
                       onChange={(event) =>
                         setBetAmount(event.currentTarget.value)
@@ -1646,6 +1679,7 @@ export function GameScreen({
                       type="button"
                       className={styles.bpQuickButton}
                       onClick={() => setBetAmount(clampBet(value).toFixed(2))}
+                      disabled={value > protocol.maxOpenAmountValue}
                     >
                       {value < 1 ? `${Math.round(value * 100)}c` : 'US$ 1'}
                     </button>

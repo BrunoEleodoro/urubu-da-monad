@@ -22,6 +22,7 @@ import { monadMainnet, monadUsdc } from '@/lib/chains'
 import {
   binaryAbi,
   binaryContractAddress,
+  liquidityVaultAbi,
   protocolPositionResponseSchema,
   protocolSnapshotSchema,
 } from '@/lib/protocol'
@@ -45,6 +46,8 @@ import {
 type OverlayMode = RampMode | 'passkey'
 
 const POSITION_STORAGE_PREFIX = 'urubu:active-position'
+const BPS_DENOMINATOR = BigInt(10_000)
+const LEVERAGE = BigInt(100)
 
 function shortenAddress(address?: string | null) {
   if (!address) return ''
@@ -61,6 +64,12 @@ function formatUsdcAmount(rawValue: bigint, digits = 2) {
   return `${Number(formatUnits(rawValue, monadUsdc.decimals)).toFixed(digits)} ${monadUsdc.symbol}`
 }
 
+function floorUsdcAmount(rawValue: bigint, digits = 2) {
+  const numericValue = Number(formatUnits(rawValue, monadUsdc.decimals))
+  const factor = 10 ** digits
+  return Math.floor(numericValue * factor) / factor
+}
+
 function formatOraclePrice(rawValue: bigint) {
   const value = Number(formatUnits(rawValue, monadUsdc.decimals))
   return `US$ ${value.toLocaleString('pt-BR', {
@@ -71,6 +80,50 @@ function formatOraclePrice(rawValue: bigint) {
 
 function getPositionStorageKey(address: string) {
   return `${POSITION_STORAGE_PREFIX}:${address.toLowerCase()}`
+}
+
+function calculateStakeFromGrossAmount(grossAmount: bigint, feeBps: bigint) {
+  const fee = (grossAmount * feeBps) / BPS_DENOMINATOR
+  return grossAmount - fee
+}
+
+function calculateMaxGrossAmount(params: {
+  feeBps: bigint
+  freeAssets: bigint
+  lockedAssets: bigint
+  maxPayout: bigint
+  maxUtilizationBps: bigint
+}) {
+  const { feeBps, freeAssets, lockedAssets, maxPayout, maxUtilizationBps } =
+    params
+  const utilizationCapacity = (freeAssets * maxUtilizationBps) / BPS_DENOMINATOR
+
+  if (utilizationCapacity <= lockedAssets) {
+    return BigInt(0)
+  }
+
+  const maxStakeByUtilization = (utilizationCapacity - lockedAssets) / LEVERAGE
+  const maxStake =
+    maxStakeByUtilization < maxPayout ? maxStakeByUtilization : maxPayout
+
+  if (maxStake <= BigInt(0)) {
+    return BigInt(0)
+  }
+
+  let low = BigInt(0)
+  let high = maxStake * BigInt(2) + BigInt(1)
+
+  while (low < high) {
+    const mid = (low + high + BigInt(1)) / BigInt(2)
+
+    if (calculateStakeFromGrossAmount(mid, feeBps) <= maxStake) {
+      low = mid
+    } else {
+      high = mid - BigInt(1)
+    }
+  }
+
+  return low
 }
 
 function parseBinaryEvent(
@@ -437,6 +490,8 @@ export default function App() {
             : null,
         feeBps: 0,
         loading: protocolSnapshotQuery.isLoading,
+        maxOpenAmountLabel: `-- ${monadUsdc.symbol}`,
+        maxOpenAmountValue: 0,
         maxPayoutLabel: `-- ${monadUsdc.symbol}`,
         oracleAddress: '',
         oraclePriceLabel: '--',
@@ -450,6 +505,14 @@ export default function App() {
 
     const freeAssets = BigInt(snapshot.vaultTotalAssets)
     const lockedAssets = BigInt(snapshot.vaultLockedAssets)
+    const maxOpenAmountRaw = calculateMaxGrossAmount({
+      feeBps: BigInt(snapshot.feeBps),
+      freeAssets,
+      lockedAssets,
+      maxPayout: BigInt(snapshot.maxPayout),
+      maxUtilizationBps: BigInt(snapshot.maxUtilizationBps),
+    })
+    const maxOpenAmountValue = floorUsdcAmount(maxOpenAmountRaw)
     const totalAssets = freeAssets + lockedAssets
     const utilizationBps =
       totalAssets > BigInt(0)
@@ -465,6 +528,8 @@ export default function App() {
           : null,
       feeBps: snapshot.feeBps,
       loading: protocolSnapshotQuery.isFetching && !protocolSnapshotQuery.data,
+      maxOpenAmountLabel: `${maxOpenAmountValue.toFixed(2)} ${monadUsdc.symbol}`,
+      maxOpenAmountValue,
       maxPayoutLabel: formatUsdcAmount(BigInt(snapshot.maxPayout)),
       oracleAddress: snapshot.oracleAddress,
       oraclePriceLabel: formatOraclePrice(BigInt(snapshot.oraclePrice)),
@@ -587,6 +652,61 @@ export default function App() {
       }
 
       const grossAmount = parseUnits(amount.toFixed(2), monadUsdc.decimals)
+      const [vaultAddress, feeBps, maxPayout, maxUtilizationBps] =
+        await Promise.all([
+          publicClient.readContract({
+            address: binaryContractAddress,
+            abi: binaryAbi,
+            functionName: 'vault',
+          }),
+          publicClient.readContract({
+            address: binaryContractAddress,
+            abi: binaryAbi,
+            functionName: 'feeBps',
+          }),
+          publicClient.readContract({
+            address: binaryContractAddress,
+            abi: binaryAbi,
+            functionName: 'maxPayout',
+          }),
+          publicClient.readContract({
+            address: binaryContractAddress,
+            abi: binaryAbi,
+            functionName: 'maxUtilizationBps',
+          }),
+        ])
+      const [freeAssets, lockedAssets] = await Promise.all([
+        publicClient.readContract({
+          address: vaultAddress,
+          abi: liquidityVaultAbi,
+          functionName: 'totalAssets',
+        }),
+        publicClient.readContract({
+          address: vaultAddress,
+          abi: liquidityVaultAbi,
+          functionName: 'lockedAssets',
+        }),
+      ])
+      const maxOpenAmountRaw = calculateMaxGrossAmount({
+        feeBps,
+        freeAssets,
+        lockedAssets,
+        maxPayout,
+        maxUtilizationBps,
+      })
+      const maxOpenAmountValue = floorUsdcAmount(maxOpenAmountRaw)
+
+      if (maxOpenAmountRaw <= BigInt(0)) {
+        throw new Error(
+          'O vault nao tem capacidade livre para abrir novas posicoes agora.',
+        )
+      }
+
+      if (grossAmount > maxOpenAmountRaw) {
+        throw new Error(
+          `Maximo atual do vault: ${maxOpenAmountValue.toFixed(2)} ${monadUsdc.symbol}.`,
+        )
+      }
 
       let approvalHash: Hex | null = null
       let openHash: Hex

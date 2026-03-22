@@ -86,10 +86,8 @@
   font-weight: 700;
   letter-spacing: 0.4px;
   cursor: pointer;
-  transition:
-    transform 0.15s ease,
-    border-color 0.15s ease,
-    background 0.15s ease;
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s
+    ease;
 }
 
 .rampBtn:hover {
@@ -132,11 +130,8 @@
   );
   color: var(--text);
   cursor: pointer;
-  transition:
-    transform 0.15s ease,
-    border-color 0.15s ease,
-    background 0.15s ease,
-    opacity 0.15s ease;
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s
+    ease, opacity 0.15s ease;
 }
 
 .walletBtn:hover {
@@ -195,10 +190,8 @@
   letter-spacing: 0.35px;
   text-transform: uppercase;
   cursor: pointer;
-  transition:
-    transform 0.15s ease,
-    border-color 0.15s ease,
-    background 0.15s ease;
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s
+    ease;
 }
 
 .passkeyBtn:hover {
@@ -248,10 +241,8 @@
   background: rgba(245, 158, 11, 0.08);
   color: var(--text);
   cursor: pointer;
-  transition:
-    transform 0.15s ease,
-    border-color 0.15s ease,
-    background 0.15s ease;
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s
+    ease;
 }
 
 .addressBtn:hover {
@@ -355,17 +346,17 @@
   font-variant-numeric: tabular-nums;
 }
 
-.pnlAmount[data-tone='win'] {
+.pnlAmount[data-tone="win"] {
   color: var(--green);
   text-shadow: 0 0 30px rgba(34, 197, 94, 0.3);
 }
 
-.pnlAmount[data-tone='lose'] {
+.pnlAmount[data-tone="lose"] {
   color: var(--red);
   text-shadow: 0 0 30px rgba(239, 68, 68, 0.3);
 }
 
-.pnlAmount[data-tone='idle'] {
+.pnlAmount[data-tone="idle"] {
   color: var(--text3);
   text-shadow: none;
 }
@@ -378,7 +369,7 @@
   letter-spacing: 0.5px;
 }
 
-.pnlDetail[data-tone='idle'] {
+.pnlDetail[data-tone="idle"] {
   color: var(--text3);
 }
 
@@ -409,9 +400,7 @@
   opacity: 0;
   transform: translate(-50%, -50%) scale(0);
   text-align: center;
-  transition:
-    transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
-    opacity 0.3s;
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s;
 }
 
 .roundResultShow {
@@ -791,6 +780,11 @@
   color: var(--text);
 }
 
+.bpQuickButton:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
 .bpActions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -811,10 +805,7 @@
   font-weight: 800;
   letter-spacing: 0.2px;
   cursor: pointer;
-  transition:
-    transform 0.15s ease,
-    opacity 0.15s ease,
-    box-shadow 0.15s ease,
+  transition: transform 0.15s ease, opacity 0.15s ease, box-shadow 0.15s ease,
     background 0.15s ease;
 }
 
@@ -1095,10 +1086,7 @@
     overflow: hidden;
     opacity: 0;
     transform: translateY(22px);
-    transition:
-      max-height 0.32s ease,
-      opacity 0.2s ease,
-      transform 0.32s ease;
+    transition: max-height 0.32s ease, opacity 0.2s ease, transform 0.32s ease;
   }
 
   .betSidebarOpen .tradePanelBody {
