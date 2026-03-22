@@ -489,6 +489,7 @@
 
 .betSidebar {
   display: flex;
+  min-height: 0;
   flex-direction: column;
   overflow: hidden;
   border-left: 1px solid var(--border);
@@ -545,8 +546,22 @@
 
 .tradePanelBody {
   display: flex;
+  flex: 1;
   min-height: 0;
   flex-direction: column;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.tradePanelBody::-webkit-scrollbar {
+  width: 6px;
+}
+
+.tradePanelBody::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--border);
 }
 
 .betCard {
@@ -1082,6 +1097,7 @@
   }
 
   .tradePanelBody {
+    flex: 0 1 auto;
     max-height: 0;
     overflow: hidden;
     opacity: 0;
@@ -1090,7 +1106,8 @@
   }
 
   .betSidebarOpen .tradePanelBody {
-    max-height: 420px;
+    max-height: min(420px, calc(100dvh - 120px));
+    overflow-y: auto;
     opacity: 1;
     transform: translateY(0);
   }
