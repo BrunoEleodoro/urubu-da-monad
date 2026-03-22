@@ -1,7 +1,6 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { useEffect } from 'react'
 
 import { OrdaProvider, createAppKitConfig } from '@ordanetwork/sdk/react'
 
@@ -67,41 +66,14 @@ async function getOrdaToken() {
 }
 
 interface OrdaRampSheetProps {
-  mode: RampMode | null
-  open: boolean
-  onClose: () => void
+  mode: RampMode
+  onBack: () => void
 }
 
-export function OrdaRampSheet({
+export function OrdaRampView({
   mode,
-  open,
-  onClose,
+  onBack,
 }: OrdaRampSheetProps) {
-  useEffect(() => {
-    if (!open) {
-      return
-    }
-
-    const previousOverflow = document.body.style.overflow
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        onClose()
-      }
-    }
-
-    document.body.style.overflow = 'hidden'
-    window.addEventListener('keydown', handleKeyDown)
-
-    return () => {
-      document.body.style.overflow = previousOverflow
-      window.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [onClose, open])
-
-  if (!open || !mode) {
-    return null
-  }
-
   const isOnRamp = mode === 'onRamp'
   const title = isOnRamp ? 'On-ramp' : 'Off-ramp'
   const description = isOnRamp
@@ -112,18 +84,8 @@ export function OrdaRampSheet({
     : 'Pick a supported crypto token as the source inside the widget, then choose BRL or PIX as the cash-out destination.'
 
   return (
-    <div
-      className={styles.backdrop}
-      role="presentation"
-      onClick={onClose}
-    >
-      <section
-        aria-labelledby="orda-ramp-title"
-        aria-modal="true"
-        className={styles.sheet}
-        onClick={(event) => event.stopPropagation()}
-        role="dialog"
-      >
+    <main className={styles.screen}>
+      <section className={styles.shell} aria-labelledby="orda-ramp-title">
         <header className={styles.header}>
           <div className={styles.headerCopy}>
             <span className={styles.badge}>Powered by Orda</span>
@@ -136,9 +98,9 @@ export function OrdaRampSheet({
           <button
             type="button"
             className={styles.closeButton}
-            onClick={onClose}
+            onClick={onBack}
           >
-            Close
+            Back to game
           </button>
         </header>
 
@@ -167,11 +129,11 @@ export function OrdaRampSheet({
           ) : (
             <div className={styles.emptyState}>
               Add <code>NEXT_PUBLIC_WALLET_CONNECT_PROJECT_ID</code> to enable
-              the Orda widget connection modal.
+              the Orda widget connection flow.
             </div>
           )}
         </div>
       </section>
-    </div>
+    </main>
   )
 }

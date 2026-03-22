@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { useFrame } from '@/components/farcaster-provider'
 import { GameScreen, type WalletUiState } from '@/components/game-screen'
-import { OrdaRampSheet, type RampMode } from '@/components/orda-ramp-sheet'
+import { OrdaRampView, type RampMode } from '@/components/orda-ramp-sheet'
 import {
   monadMainnet,
   monadTradeSimulationRecipient,
@@ -270,6 +270,15 @@ export default function App() {
     }
   }, [address, chainId, isConnected, publicClient])
 
+  if (rampMode) {
+    return (
+      <OrdaRampView
+        mode={rampMode}
+        onBack={() => setRampMode(null)}
+      />
+    )
+  }
+
   return (
     <>
       <GameScreen
@@ -282,11 +291,6 @@ export default function App() {
         onSimulateTrade={simulateTradeTransfer}
       />
 
-      <OrdaRampSheet
-        mode={rampMode}
-        open={rampMode !== null}
-        onClose={() => setRampMode(null)}
-      />
     </>
   )
 }

@@ -1,26 +1,18 @@
-.backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 80;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  padding: 20px;
-  background: rgba(5, 7, 15, 0.68);
-  backdrop-filter: blur(16px);
-}
-
-.sheet {
-  width: min(100%, 960px);
-  max-height: min(92dvh, 920px);
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 28px;
+.screen {
+  min-height: 100dvh;
   background:
     radial-gradient(circle at top left, rgba(245, 158, 11, 0.12), transparent 35%),
     linear-gradient(180deg, rgba(20, 20, 34, 0.98), rgba(10, 12, 22, 0.98));
   color: #f2f2f7;
-  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
+}
+
+.shell {
+  width: min(100%, 1120px);
+  margin: 0 auto;
+  padding: 24px;
+  background:
+    radial-gradient(circle at top left, rgba(245, 158, 11, 0.08), transparent 28%),
+    transparent;
 }
 
 .header {
@@ -28,7 +20,7 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 20px;
-  padding: 24px 24px 18px;
+  padding: 0 0 18px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
@@ -102,7 +94,7 @@
 .body {
   display: grid;
   gap: 16px;
-  padding: 20px 24px 24px;
+  padding: 20px 0 32px;
 }
 
 .notice {
@@ -124,14 +116,20 @@
 }
 
 .widgetWrap {
-  min-height: 620px;
-  overflow: auto;
+  min-height: 720px;
+  overflow: visible;
   border-radius: 24px;
   background: #ffffff;
+  padding: 24px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.18);
 }
 
 .widgetWrap :global(.orda-widget) {
-  min-height: 620px;
+  min-height: 680px;
+}
+
+.widgetWrap :global([data-radix-popper-content-wrapper]) {
+  z-index: 120 !important;
 }
 
 .widgetLoading,
@@ -149,13 +147,8 @@
 }
 
 @media (max-width: 768px) {
-  .backdrop {
-    padding: 12px;
-  }
-
-  .sheet {
-    max-height: calc(100dvh - 24px);
-    border-radius: 24px;
+  .shell {
+    padding: 16px 16px 28px;
   }
 
   .header {
@@ -167,7 +160,8 @@
   }
 
   .widgetWrap {
-    min-height: 520px;
+    min-height: 560px;
+    padding: 16px;
   }
 
   .widgetWrap :global(.orda-widget) {
