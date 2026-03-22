@@ -1247,9 +1247,6 @@ export function GameScreen({
         ? 'ABERTA'
         : 'BAIXA'
   const hasTradeCapacity = protocol.maxOpenAmountValue >= MIN_BET
-  const activePositionReady = Boolean(
-    activePosition && roundState === 'cooldown',
-  )
   const buttonsDisabled =
     !hasMarketData ||
     !hasTradeCapacity ||
@@ -1779,18 +1776,14 @@ export function GameScreen({
                     type="button"
                     className={cn(
                       styles.settleButton,
-                      activePositionReady && styles.settleButtonReady,
+                      styles.settleButtonReady,
                     )}
                     onClick={() => {
                       void handleSettlePosition()
                     }}
-                    disabled={!activePositionReady || isSettlingTrade}
+                    disabled={isSettlingTrade}
                   >
-                    {isSettlingTrade
-                      ? 'Encerrando...'
-                      : activePositionReady
-                        ? 'Encerrar posicao'
-                        : 'Aguardando timer'}
+                    {isSettlingTrade ? 'Encerrando...' : 'Encerrar posicao'}
                   </button>
                 ) : null}
               </div>
