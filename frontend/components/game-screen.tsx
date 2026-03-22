@@ -79,6 +79,7 @@ export interface WalletUiState {
   connecting: boolean
   interactive: boolean
   action: WalletAction
+  buttonLabel: string
   address: string
   addressLabel: string
   usdcBalanceLabel: string
@@ -94,11 +95,13 @@ interface TradeSimulationResult {
 
 interface GameScreenProps {
   wallet: WalletUiState
+  showPasskeyWalletButton: boolean
   onConnectWallet: () => Promise<void>
   onSwitchToMonad: () => Promise<void>
   onDisconnectWallet: () => void
   onOpenOffRamp: () => void
   onOpenOnRamp: () => void
+  onOpenPasskeyWallet: () => void
   onSimulateTrade: (input: {
     direction: Direction
     amount: number
@@ -225,11 +228,13 @@ async function fetchLatestPrice() {
 
 export function GameScreen({
   wallet,
+  showPasskeyWalletButton,
   onConnectWallet,
   onSwitchToMonad,
   onDisconnectWallet,
   onOpenOffRamp,
   onOpenOnRamp,
+  onOpenPasskeyWallet,
   onSimulateTrade,
 }: GameScreenProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -914,7 +919,7 @@ export function GameScreen({
       if (wallet.connecting) {
         setTradeNotice({
           tone: 'pending',
-          message: 'Finish the wallet action in Warpcast to continue.',
+          message: 'Finish the wallet flow to continue.',
         })
         return
       }
@@ -1155,24 +1160,26 @@ export function GameScreen({
             >
               <span className={styles.walletIndicator} />
               <span className={styles.walletCopy}>
-                <span className={styles.walletLabel}>
-                  {wallet.connecting
-                    ? 'Connecting...'
-                    : wallet.connected
-                      ? wallet.addressLabel || 'Wallet connected'
-                      : wallet.interactive
-                        ? 'Connect wallet'
-                        : 'Warpcast only'}
-                </span>
+                <span className={styles.walletLabel}>{wallet.buttonLabel}</span>
                 <span className={styles.walletSub}>
                   {wallet.connecting
-                    ? 'Approve in Warpcast'
+                    ? 'Finish the wallet flow'
                     : wallet.connected
                       ? wallet.usdcBalanceLabel || wallet.chainLabel || 'Tap to disconnect'
                       : wallet.status || 'Use your Farcaster wallet'}
                 </span>
               </span>
             </button>
+
+            {showPasskeyWalletButton ? (
+              <button
+                type="button"
+                className={styles.passkeyBtn}
+                onClick={onOpenPasskeyWallet}
+              >
+                Passkey wallet
+              </button>
+            ) : null}
 
             <div className={styles.balanceBox}>
               <span className={styles.curr}>{monadUsdc.symbol}</span>

@@ -4,6 +4,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { useFrame } from '@/components/farcaster-provider'
 import { GameScreen, type WalletUiState } from '@/components/game-screen'
+import {
+  passkeyWalletEnabled,
+  usePasskeyWallet,
+} from '@/components/passkey-wallet-provider'
+import { PasskeyWalletView } from '@/components/passkey-wallet-screen'
 import { OrdaRampView, type RampMode } from '@/components/orda-ramp-sheet'
 import {
   monadMainnet,
@@ -19,6 +24,8 @@ import {
   usePublicClient,
   useSwitchChain,
 } from 'wagmi'
+
+type OverlayMode = RampMode | 'passkey'
 
 function shortenAddress(address?: string) {
   if (!address) return ''
@@ -76,7 +83,7 @@ function getErrorMessage(error: unknown) {
 }
 
 export default function App() {
-  const [rampMode, setRampMode] = useState<RampMode | null>(null)
+  const [overlayMode, setOverlayMode] = useState<OverlayMode | null>(null)
   const [walletError, setWalletError] = useState<string | null>(null)
   const [browserWallets, setBrowserWallets] = useState<BrowserWalletState>({
     any: false,
@@ -90,12 +97,24 @@ export default function App() {
   const { switchChainAsync, isPending: isSwitchingChain } = useSwitchChain()
   const publicClient = usePublicClient({ chainId: monadMainnet.id })
 
+  const passkeyWallet = usePasskeyWallet()
+
+  const canUsePasskey = passkeyWallet.enabled && !isEthProviderAvailable
+  const passkeyConnected = canUsePasskey && passkeyWallet.connected
+  const walletConnected = isConnected || passkeyConnected
+  const activeAddress = isConnected
+    ? address
+    : passkeyConnected
+      ? passkeyWallet.address
+      : undefined
+  const onMonad = isConnected ? chainId === monadMainnet.id : passkeyConnected
+
   const { data: usdcBalance } = useBalance({
-    address,
+    address: activeAddress,
     token: monadUsdc.address,
     chainId: monadMainnet.id,
     query: {
-      enabled: Boolean(address && isConnected),
+      enabled: Boolean(activeAddress && walletConnected),
     },
   })
 
@@ -113,6 +132,12 @@ export default function App() {
     }
   }, [])
 
+  useEffect(() => {
+    if (overlayMode === 'passkey' && passkeyConnected) {
+      setOverlayMode(null)
+    }
+  }, [overlayMode, passkeyConnected])
+
   const connectWallet = useCallback(async () => {
     setWalletError(null)
 
@@ -124,12 +149,17 @@ export default function App() {
     ]
 
     const orderedConnectors = candidateIds
-      .map((id) => connectors.find((connector) => connector.id === id))
-      .filter((connector): connector is (typeof connectors)[number] =>
-        Boolean(connector),
+      .map((id) => connectors.find((candidateConnector) => candidateConnector.id === id))
+      .filter((candidateConnector): candidateConnector is (typeof connectors)[number] =>
+        Boolean(candidateConnector),
       )
 
     if (orderedConnectors.length === 0) {
+      if (canUsePasskey) {
+        setOverlayMode('passkey')
+        return
+      }
+
       setWalletError('Open in Warpcast or use a browser wallet like Rabby')
       return
     }
@@ -149,10 +179,22 @@ export default function App() {
     }
 
     setWalletError(getErrorMessage(lastError))
-  }, [browserWallets.any, browserWallets.metaMask, browserWallets.rabby, connectAsync, connectors, isEthProviderAvailable])
+  }, [
+    browserWallets.any,
+    browserWallets.metaMask,
+    browserWallets.rabby,
+    canUsePasskey,
+    connectAsync,
+    connectors,
+    isEthProviderAvailable,
+  ])
 
   const switchToMonad = useCallback(async () => {
     setWalletError(null)
+
+    if (passkeyConnected) {
+      return
+    }
 
     try {
       await switchChainAsync({ chainId: monadMainnet.id })
@@ -161,38 +203,58 @@ export default function App() {
         error instanceof Error ? error.message : 'Network switch failed',
       )
     }
-  }, [switchChainAsync])
+  }, [passkeyConnected, switchChainAsync])
 
   const disconnectWallet = useCallback(() => {
     setWalletError(null)
-    disconnect()
-  }, [disconnect])
+
+    if (isConnected) {
+      disconnect()
+      return
+    }
+
+    if (passkeyConnected) {
+      passkeyWallet.disconnect()
+    }
+  }, [disconnect, isConnected, passkeyConnected, passkeyWallet])
 
   const walletState = useMemo<WalletUiState>(() => {
-    const onMonad = chainId === monadMainnet.id
-    const isBusy = isConnecting || isSwitchingChain
-    const hasWalletOption = isEthProviderAvailable || browserWallets.any
+    const isBusy =
+      isConnecting ||
+      isSwitchingChain ||
+      passkeyWallet.isAuthenticating ||
+      passkeyWallet.isDisconnecting
+    const hasWalletOption = isEthProviderAvailable || browserWallets.any || canUsePasskey
     const action = isConnected
       ? onMonad
         ? 'disconnect'
         : 'switch-chain'
-      : 'connect'
+      : passkeyConnected
+        ? 'disconnect'
+        : 'connect'
+
     let status = 'Open in Warpcast or a browser wallet'
 
     if (walletError) {
       status = walletError
     } else if (isBusy) {
-      status = 'Connecting wallet...'
+      status = 'Preparing your wallet...'
+    } else if (passkeyConnected) {
+      status = 'Connected with passkey smart wallet'
     } else if (isConnected && onMonad) {
       status = `Connected with ${connector?.name ?? 'wallet'}`
     } else if (isConnected) {
       status = 'Switch to Monad Mainnet'
+    } else if (browserWallets.any && canUsePasskey) {
+      status = 'Connect a browser wallet or create a passkey wallet'
     } else if (browserWallets.rabby) {
       status = 'Connect your Rabby wallet'
     } else if (browserWallets.metaMask) {
       status = 'Connect your MetaMask wallet'
     } else if (browserWallets.any) {
       status = 'Connect your browser wallet'
+    } else if (canUsePasskey) {
+      status = 'Create a passkey smart wallet'
     } else if (isEthProviderAvailable) {
       status = 'Connect your Farcaster wallet'
     } else if (isLoading) {
@@ -203,38 +265,57 @@ export default function App() {
       status = 'Connect your wallet'
     }
 
+    const buttonLabel = isBusy
+      ? 'Connecting...'
+      : walletConnected
+        ? shortenAddress(activeAddress) || 'Wallet connected'
+        : !browserWallets.any && canUsePasskey
+          ? 'Passkey wallet'
+          : hasWalletOption
+            ? 'Connect wallet'
+            : 'Warpcast only'
+
     return {
-      connected: isConnected,
+      connected: walletConnected,
       connecting: isBusy,
-      interactive: isConnected || hasWalletOption,
+      interactive: walletConnected || hasWalletOption,
       action,
-      address: address ?? '',
-      addressLabel: shortenAddress(address),
+      buttonLabel,
+      address: activeAddress ?? '',
+      addressLabel: shortenAddress(activeAddress),
       usdcBalanceLabel: usdcBalance
         ? `${Number(usdcBalance.formatted).toFixed(2)} ${usdcBalance.symbol}`
         : '',
       usdcBalanceValue: usdcBalance ? Number(usdcBalance.formatted) : null,
-      chainLabel: onMonad
-        ? `${connector?.name ?? 'Wallet'} on Monad Mainnet`
-        : chainId
-          ? `Chain ${chainId}`
-          : '',
+      chainLabel: passkeyConnected
+        ? 'Passkey smart wallet on Monad Mainnet'
+        : onMonad
+          ? `${connector?.name ?? 'Wallet'} on Monad Mainnet`
+          : chainId
+            ? `Chain ${chainId}`
+            : '',
       status,
     }
   }, [
-    address,
+    activeAddress,
     browserWallets.any,
     browserWallets.metaMask,
     browserWallets.rabby,
+    canUsePasskey,
     chainId,
     connector?.name,
-    isEthProviderAvailable,
     isConnected,
     isConnecting,
+    isEthProviderAvailable,
     isLoading,
     isSDKLoaded,
     isSwitchingChain,
+    onMonad,
+    passkeyConnected,
+    passkeyWallet.isAuthenticating,
+    passkeyWallet.isDisconnecting,
     usdcBalance,
+    walletConnected,
     walletError,
   ])
 
@@ -245,16 +326,16 @@ export default function App() {
       throw new Error('Monad public client unavailable.')
     }
 
-    if (!address || !isConnected) {
+    if (!activeAddress || !walletConnected) {
       throw new Error('Connect your wallet first.')
     }
 
-    if (chainId !== monadMainnet.id) {
+    if (!passkeyConnected && chainId !== monadMainnet.id) {
       throw new Error('Switch to Monad Mainnet first.')
     }
 
     await publicClient.simulateContract({
-      account: address,
+      account: activeAddress,
       address: monadUsdc.address,
       abi: erc20Abi,
       functionName: 'transfer',
@@ -268,29 +349,44 @@ export default function App() {
       amountLabel: `1.00 ${monadUsdc.symbol}`,
       receiverLabel: shortenAddress(monadTradeSimulationRecipient),
     }
-  }, [address, chainId, isConnected, publicClient])
+  }, [
+    activeAddress,
+    chainId,
+    passkeyConnected,
+    publicClient,
+    walletConnected,
+  ])
 
-  if (rampMode) {
+  if (overlayMode === 'passkey') {
+    return (
+      <PasskeyWalletView
+        configured={passkeyWalletEnabled}
+        onBack={() => setOverlayMode(null)}
+      />
+    )
+  }
+
+  if (overlayMode) {
     return (
       <OrdaRampView
-        mode={rampMode}
-        onBack={() => setRampMode(null)}
+        mode={overlayMode}
+        defaultAddress={activeAddress}
+        onBack={() => setOverlayMode(null)}
       />
     )
   }
 
   return (
-    <>
-      <GameScreen
-        wallet={walletState}
-        onConnectWallet={connectWallet}
-        onSwitchToMonad={switchToMonad}
-        onDisconnectWallet={disconnectWallet}
-        onOpenOffRamp={() => setRampMode('offRamp')}
-        onOpenOnRamp={() => setRampMode('onRamp')}
-        onSimulateTrade={simulateTradeTransfer}
-      />
-
-    </>
+    <GameScreen
+      wallet={walletState}
+      showPasskeyWalletButton={!walletConnected && canUsePasskey && browserWallets.any}
+      onConnectWallet={connectWallet}
+      onSwitchToMonad={switchToMonad}
+      onDisconnectWallet={disconnectWallet}
+      onOpenOffRamp={() => setOverlayMode('offRamp')}
+      onOpenOnRamp={() => setOverlayMode('onRamp')}
+      onOpenPasskeyWallet={() => setOverlayMode('passkey')}
+      onSimulateTrade={simulateTradeTransfer}
+    />
   )
 }
