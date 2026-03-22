@@ -1,0 +1,69 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import {Script, console} from "forge-std/Script.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+import {PythOracle} from "../src/oracles/PythOracle.sol";
+import {LiquidityVault} from "../src/LiquidityVault.sol";
+import {Binary} from "../src/Binary.sol";
+import {ConfigurationManager} from "../src/ConfigurationManager.sol";
+
+/// @notice Deployment script for the Binary Options Protocol.
+/// See .env.template for required environment variables.
+contract Deploy is Script {
+    function run() external {
+        uint256 deployerPk = vm.deriveKey(vm.envString("MNEMONIC"), uint32(vm.envOr("MNEMONIC_INDEX", uint256(0))));
+        address deployer = vm.addr(deployerPk);
+
+        address asset             = vm.envAddress("ASSET");
+        uint256 maxPayout         = vm.envUint("MAX_PAYOUT");
+        uint256 maxUtilizationBps = vm.envUint("MAX_UTILIZATION_BPS");
+        uint256 seedDeposit       = vm.envUint("SEED_DEPOSIT");
+
+        vm.startBroadcast(deployerPk);
+
+        // 1. Deploy PythOracle
+        PythOracle oracle = new PythOracle(
+            vm.envAddress("PYTH_CONTRACT"),
+            vm.envBytes32("PYTH_PRICE_ID"),
+            vm.envUint("PYTH_MAX_AGE"),
+            uint8(vm.envUint("PYTH_TARGET_DECIMALS"))
+        );
+        console.log("PythOracle:", address(oracle));
+
+        // 2. Deploy ConfigurationManager
+        ConfigurationManager configManager = new ConfigurationManager();
+        console.log("ConfigurationManager:", address(configManager));
+
+        // 3. Deploy LiquidityVault
+        LiquidityVault vault = new LiquidityVault(IERC20(asset), "Liquidity Vault", "lvUSDC", configManager);
+        console.log("LiquidityVault:", address(vault));
+
+        // 4. Deploy Binary
+        Binary binary = new Binary(address(configManager), address(vault));
+        console.log("Binary:", address(binary));
+
+        // 5. Configure protocol parameters
+        configManager.set(configManager.VAULT_CONTROLLER(), bytes32(uint256(uint160(address(binary)))));
+        configManager.set(configManager.ORACLE(),              bytes32(uint256(uint160(address(oracle)))));
+        configManager.set(configManager.MAX_PAYOUT(),          bytes32(maxPayout));
+        configManager.set(configManager.MAX_UTILIZATION_BPS(), bytes32(maxUtilizationBps));
+        configManager.set(configManager.FEE_BPS(),             bytes32(vm.envUint("FEE_BPS")));
+        configManager.set(configManager.DURATION(),            bytes32(vm.envUint("DURATION")));
+
+        // 6. Seed vault with initial deposit to mitigate inflation attack
+        if (seedDeposit > 0) {
+            IERC20(asset).approve(address(vault), seedDeposit);
+            vault.deposit(seedDeposit, deployer);
+        }
+
+        vm.stopBroadcast();
+
+        console.log("\n=== Deployment Complete ===");
+        console.log("PythOracle:           ", address(oracle));
+        console.log("LiquidityVault:       ", address(vault));
+        console.log("Binary:               ", address(binary));
+        console.log("ConfigurationManager: ", address(configManager));
+    }
+}
