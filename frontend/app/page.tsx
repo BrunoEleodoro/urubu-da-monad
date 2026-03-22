@@ -23,11 +23,11 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     title: 'Urubu do Nomad',
     description:
-      'Live MON/USD game themed for Monad and ready to launch inside Farcaster.',
+      'Live MON price game themed for Monad and ready to launch inside Farcaster.',
     openGraph: {
       title: 'Urubu do Nomad',
       description:
-        'Live MON/USD game themed for Monad and ready to launch inside Farcaster.',
+        'Live MON price game themed for Monad and ready to launch inside Farcaster.',
       images: [`${APP_URL}/images/og.png`],
     },
     other: {

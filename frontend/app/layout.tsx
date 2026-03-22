@@ -22,7 +22,7 @@ export const metadata: Metadata = {
     template: '%s | Urubu do Nomad',
   },
   description:
-    'Live MON/USD game styled for Monad and packaged as a Farcaster mini app.',
+    'Live MON price game styled for Monad and packaged as a Farcaster mini app.',
   applicationName: 'Urubu do Nomad',
   alternates: {
     canonical: APP_URL,
@@ -31,7 +31,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: 'Urubu do Nomad',
     description:
-      'Live MON/USD game styled for Monad and packaged as a Farcaster mini app.',
+      'Live MON price game styled for Monad and packaged as a Farcaster mini app.',
     url: APP_URL,
     siteName: 'Urubu do Nomad',
     type: 'website',
@@ -48,7 +48,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: 'Urubu do Nomad',
     description:
-      'Live MON/USD game styled for Monad and packaged as a Farcaster mini app.',
+      'Live MON price game styled for Monad and packaged as a Farcaster mini app.',
     images: ['/images/og.png'],
   },
   icons: {

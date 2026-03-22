@@ -23,14 +23,13 @@ export async function GET() {
     splashBackgroundColor: '#0e0e1a',
     subtitle: 'Live oracle game',
     description:
-      'Bet on the MON/USD move with live Pyth data in a Monad themed Farcaster mini app.',
+      'Bet on the MON price move with live Pyth data in a Monad themed Farcaster mini app.',
     tagline: 'Bet the MON move',
     ogTitle: 'Urubu do Nomad',
-    ogDescription: 'Live MON/USD game powered by Pyth and styled for Monad.',
+    ogDescription: 'Live MON price game powered by Pyth and styled for Monad.',
     buttonTitle: 'Abrir jogo',
     primaryCategory: 'games',
     tags: ['monad', 'pyth', 'oracle', 'trading', 'games'],
-    requiredChains: ['eip155:143'],
     screenshotUrls: [],
     canonicalDomain: new URL(APP_URL).hostname,
   }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { useFrame } from '@/components/farcaster-provider'
 import { GameScreen, type WalletUiState } from '@/components/game-screen'
@@ -24,10 +24,65 @@ function shortenAddress(address?: string) {
   return `${address.slice(0, 6)}...${address.slice(-4)}`
 }
 
+interface BrowserWalletState {
+  any: boolean
+  rabby: boolean
+  metaMask: boolean
+}
+
+function detectBrowserWallets(): BrowserWalletState {
+  if (typeof window === 'undefined') {
+    return {
+      any: false,
+      rabby: false,
+      metaMask: false,
+    }
+  }
+
+  type ProviderFlags = {
+    isMetaMask?: boolean
+    isRabby?: boolean
+  }
+
+  type WindowWithEthereum = Window & {
+    ethereum?: ProviderFlags & {
+      providers?: ProviderFlags[]
+    }
+  }
+
+  const ethereum = (window as WindowWithEthereum).ethereum
+  const providers: ProviderFlags[] =
+    ethereum?.providers && ethereum.providers.length > 0
+      ? ethereum.providers
+      : ethereum
+        ? [ethereum]
+        : []
+
+  const rabby = providers.some((provider) => Boolean(provider.isRabby))
+  const metaMask = providers.some(
+    (provider) => Boolean(provider.isMetaMask) && !provider.isRabby,
+  )
+
+  return {
+    any: providers.length > 0,
+    rabby,
+    metaMask,
+  }
+}
+
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : 'Wallet connection failed'
+}
+
 export default function App() {
   const [walletError, setWalletError] = useState<string | null>(null)
+  const [browserWallets, setBrowserWallets] = useState<BrowserWalletState>({
+    any: false,
+    rabby: false,
+    metaMask: false,
+  })
   const { isEthProviderAvailable, isLoading, isSDKLoaded } = useFrame()
-  const { address, chainId, isConnected } = useAccount()
+  const { address, chainId, connector, isConnected } = useAccount()
   const { connectAsync, connectors, isPending: isConnecting } = useConnect()
   const { disconnect } = useDisconnect()
   const { switchChainAsync, isPending: isSwitchingChain } = useSwitchChain()
@@ -42,33 +97,57 @@ export default function App() {
     },
   })
 
+  useEffect(() => {
+    const sync = () => setBrowserWallets(detectBrowserWallets())
+
+    sync()
+    const asyncInjectTimeout = window.setTimeout(sync, 400)
+
+    window.addEventListener('ethereum#initialized', sync, { once: true })
+
+    return () => {
+      window.clearTimeout(asyncInjectTimeout)
+      window.removeEventListener('ethereum#initialized', sync)
+    }
+  }, [])
+
   const connectWallet = useCallback(async () => {
     setWalletError(null)
 
-    if (!isEthProviderAvailable) {
-      setWalletError('Open this mini app in Warpcast to connect')
-      return
-    }
+    const candidateIds = [
+      ...(isEthProviderAvailable ? ['farcaster'] : []),
+      ...(browserWallets.rabby ? ['rabby'] : []),
+      ...(browserWallets.metaMask ? ['metaMask'] : []),
+      ...(browserWallets.any ? ['injected'] : []),
+    ]
 
-    const farcasterConnector =
-      connectors.find((connector) => connector.id === 'farcaster') ?? connectors[0]
-
-    if (!farcasterConnector) {
-      setWalletError('Farcaster wallet connector not found')
-      return
-    }
-
-    try {
-      await connectAsync({
-        connector: farcasterConnector,
-        chainId: monadMainnet.id,
-      })
-    } catch (error) {
-      setWalletError(
-        error instanceof Error ? error.message : 'Wallet connection failed',
+    const orderedConnectors = candidateIds
+      .map((id) => connectors.find((connector) => connector.id === id))
+      .filter((connector): connector is (typeof connectors)[number] =>
+        Boolean(connector),
       )
+
+    if (orderedConnectors.length === 0) {
+      setWalletError('Open in Warpcast or use a browser wallet like Rabby')
+      return
     }
-  }, [connectAsync, connectors, isEthProviderAvailable])
+
+    let lastError: unknown = null
+
+    for (const selectedConnector of orderedConnectors) {
+      try {
+        await connectAsync({
+          connector: selectedConnector,
+          chainId: monadMainnet.id,
+        })
+        return
+      } catch (error) {
+        lastError = error
+      }
+    }
+
+    setWalletError(getErrorMessage(lastError))
+  }, [browserWallets.any, browserWallets.metaMask, browserWallets.rabby, connectAsync, connectors, isEthProviderAvailable])
 
   const switchToMonad = useCallback(async () => {
     setWalletError(null)
@@ -90,31 +169,42 @@ export default function App() {
   const walletState = useMemo<WalletUiState>(() => {
     const onMonad = chainId === monadMainnet.id
     const isBusy = isConnecting || isSwitchingChain
+    const hasWalletOption = isEthProviderAvailable || browserWallets.any
     const action = isConnected
       ? onMonad
         ? 'disconnect'
         : 'switch-chain'
       : 'connect'
-    const status = walletError
-      ? walletError
-      : isBusy
-        ? 'Connecting wallet...'
-        : isConnected && onMonad
-          ? 'Connected to Monad Mainnet'
-          : isConnected
-            ? 'Switch to Monad Mainnet'
-            : isEthProviderAvailable
-              ? 'Connect your Farcaster wallet'
-              : isLoading
-                ? 'Loading Farcaster client...'
-                : isSDKLoaded
-                  ? 'Wallet provider unavailable'
-                  : 'Open in Warpcast to connect'
+    let status = 'Open in Warpcast or a browser wallet'
+
+    if (walletError) {
+      status = walletError
+    } else if (isBusy) {
+      status = 'Connecting wallet...'
+    } else if (isConnected && onMonad) {
+      status = `Connected with ${connector?.name ?? 'wallet'}`
+    } else if (isConnected) {
+      status = 'Switch to Monad Mainnet'
+    } else if (browserWallets.rabby) {
+      status = 'Connect your Rabby wallet'
+    } else if (browserWallets.metaMask) {
+      status = 'Connect your MetaMask wallet'
+    } else if (browserWallets.any) {
+      status = 'Connect your browser wallet'
+    } else if (isEthProviderAvailable) {
+      status = 'Connect your Farcaster wallet'
+    } else if (isLoading) {
+      status = 'Loading Farcaster client...'
+    } else if (isSDKLoaded) {
+      status = 'Wallet provider unavailable'
+    } else if (hasWalletOption) {
+      status = 'Connect your wallet'
+    }
 
     return {
       connected: isConnected,
       connecting: isBusy,
-      interactive: isConnected || isEthProviderAvailable,
+      interactive: isConnected || hasWalletOption,
       action,
       address: address ?? '',
       addressLabel: shortenAddress(address),
@@ -122,15 +212,23 @@ export default function App() {
         ? `${Number(usdcBalance.formatted).toFixed(2)} ${usdcBalance.symbol}`
         : '',
       usdcBalanceValue: usdcBalance ? Number(usdcBalance.formatted) : null,
-      chainLabel: onMonad ? 'Monad Mainnet' : chainId ? `Chain ${chainId}` : '',
+      chainLabel: onMonad
+        ? `${connector?.name ?? 'Wallet'} on Monad Mainnet`
+        : chainId
+          ? `Chain ${chainId}`
+          : '',
       status,
     }
   }, [
     address,
+    browserWallets.any,
+    browserWallets.metaMask,
+    browserWallets.rabby,
     chainId,
+    connector?.name,
+    isEthProviderAvailable,
     isConnected,
     isConnecting,
-    isEthProviderAvailable,
     isLoading,
     isSDKLoaded,
     isSwitchingChain,
