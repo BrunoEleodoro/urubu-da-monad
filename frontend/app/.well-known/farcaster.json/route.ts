@@ -1,6 +1,14 @@
 import { NextResponse } from 'next/server'
 import { APP_URL } from '../../../lib/constants'
 
+const accountAssociation = {
+  header:
+    'eyJmaWQiOjcwMDgzNSwidHlwZSI6ImN1c3RvZHkiLCJrZXkiOiIweDgxOTMxYTlCQ2M3MzBFYzI1OGI4Q2Y5QzE1ODQ3ODBkNUJkZGFCMDUifQ',
+  payload: 'eyJkb21haW4iOiJ1cnVidS1kYS1tb25hZC52ZXJjZWwuYXBwIn0',
+  signature:
+    'U+lUgHbwlE3WZ/w3OtEM9wnt7fpMkS45lgicAJNG26h/mE9Tft0xUbVNQOufjaP/Fmw/e50KKJExn2Y1KJq4Ahw=',
+}
+
 export async function GET() {
   const homeUrl = `${APP_URL}/?miniApp=true`
   const manifest = {
@@ -26,22 +34,11 @@ export async function GET() {
     canonicalDomain: new URL(APP_URL).hostname,
   }
 
-  const accountAssociation =
-    process.env.FARCASTER_HEADER &&
-    process.env.FARCASTER_PAYLOAD &&
-    process.env.FARCASTER_SIGNATURE
-      ? {
-          header: process.env.FARCASTER_HEADER,
-          payload: process.env.FARCASTER_PAYLOAD,
-          signature: process.env.FARCASTER_SIGNATURE,
-        }
-      : undefined
-
   const farcasterConfig = {
-    ...(accountAssociation ? { accountAssociation } : {}),
+    accountAssociation,
     miniapp: manifest,
     frame: manifest,
-  };
+  }
 
   return NextResponse.json(farcasterConfig)
 }
