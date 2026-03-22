@@ -6,6 +6,7 @@ import { useFrame } from '@/components/farcaster-provider'
 import { GameScreen, type WalletUiState } from '@/components/game-screen'
 import {
   passkeyWalletEnabled,
+  usePasskeyTradeTransfer,
   usePasskeyWallet,
 } from '@/components/passkey-wallet-provider'
 import { PasskeyWalletView } from '@/components/passkey-wallet-screen'
@@ -21,8 +22,8 @@ import {
   useBalance,
   useConnect,
   useDisconnect,
-  usePublicClient,
   useSwitchChain,
+  useWriteContract,
 } from 'wagmi'
 
 type OverlayMode = RampMode | 'passkey'
@@ -95,9 +96,10 @@ export default function App() {
   const { connectAsync, connectors, isPending: isConnecting } = useConnect()
   const { disconnect } = useDisconnect()
   const { switchChainAsync, isPending: isSwitchingChain } = useSwitchChain()
-  const publicClient = usePublicClient({ chainId: monadMainnet.id })
+  const { writeContractAsync } = useWriteContract()
 
   const passkeyWallet = usePasskeyWallet()
+  const passkeyTradeTransfer = usePasskeyTradeTransfer()
 
   const canUsePasskey = passkeyWallet.enabled && !isEthProviderAvailable
   const passkeyConnected = canUsePasskey && passkeyWallet.connected
@@ -322,39 +324,54 @@ export default function App() {
   const simulateTradeTransfer = useCallback(async () => {
     setWalletError(null)
 
-    if (!publicClient) {
-      throw new Error('Monad public client unavailable.')
-    }
-
     if (!activeAddress || !walletConnected) {
       throw new Error('Connect your wallet first.')
     }
 
-    if (!passkeyConnected && chainId !== monadMainnet.id) {
+    const amount = parseUnits('1', monadUsdc.decimals)
+
+    if (passkeyConnected) {
+      const hash = await passkeyTradeTransfer.sendTransfer({
+        amount,
+        recipient: monadTradeSimulationRecipient,
+        tokenAddress: monadUsdc.address,
+      })
+
+      return {
+        amountLabel: `1.00 ${monadUsdc.symbol}`,
+        receiverLabel: shortenAddress(monadTradeSimulationRecipient),
+        transactionLabel: shortenAddress(hash),
+      }
+    }
+
+    if (chainId !== monadMainnet.id) {
       throw new Error('Switch to Monad Mainnet first.')
     }
 
-    await publicClient.simulateContract({
+    const hash = await writeContractAsync({
       account: activeAddress,
       address: monadUsdc.address,
       abi: erc20Abi,
       functionName: 'transfer',
+      chainId: monadMainnet.id,
       args: [
         monadTradeSimulationRecipient,
-        parseUnits('1', monadUsdc.decimals),
+        amount,
       ],
     })
 
     return {
       amountLabel: `1.00 ${monadUsdc.symbol}`,
       receiverLabel: shortenAddress(monadTradeSimulationRecipient),
+      transactionLabel: shortenAddress(hash),
     }
   }, [
     activeAddress,
     chainId,
     passkeyConnected,
-    publicClient,
+    passkeyTradeTransfer,
     walletConnected,
+    writeContractAsync,
   ])
 
   if (overlayMode === 'passkey') {

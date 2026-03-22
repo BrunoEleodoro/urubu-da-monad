@@ -387,6 +387,62 @@
   font-size: 14px;
 }
 
+.confettiBurst {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 26;
+  overflow: hidden;
+}
+
+.confettiPiece {
+  --confetti-color: #f59e0b;
+  position: absolute;
+  top: -10%;
+  width: 10px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--confetti-color);
+  opacity: 0;
+  transform: translate3d(0, 0, 0) rotate(var(--confetti-rotate));
+  animation-name: confettiFall;
+  animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+  animation-fill-mode: forwards;
+}
+
+.confettiPiece:nth-child(4n + 1) {
+  --confetti-color: #f59e0b;
+}
+
+.confettiPiece:nth-child(4n + 2) {
+  --confetti-color: #22c55e;
+}
+
+.confettiPiece:nth-child(4n + 3) {
+  --confetti-color: #fde68a;
+}
+
+.confettiPiece:nth-child(4n) {
+  --confetti-color: #fca5a5;
+}
+
+@keyframes confettiFall {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, -8%, 0) rotate(var(--confetti-rotate));
+  }
+
+  12% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--confetti-drift), 118%, 0)
+      rotate(calc(var(--confetti-rotate) + 240deg));
+  }
+}
+
 .betSidebar {
   display: flex;
   flex-direction: column;

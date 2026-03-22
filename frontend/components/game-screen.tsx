@@ -1,6 +1,7 @@
 'use client'
 
 import {
+  type CSSProperties,
   startTransition,
   useCallback,
   useDeferredValue,
@@ -31,6 +32,14 @@ const MAX_BET = 1
 const MIN_BET = 0.1
 const SIMULATED_TRADE_AMOUNT = 1
 const PAD = { top: 24, right: 80, bottom: 40, left: 16 }
+const CONFETTI_PIECES = Array.from({ length: 24 }, (_, index) => ({
+  id: index,
+  left: `${4 + ((index * 11) % 92)}%`,
+  delay: `${(index % 6) * 0.06}s`,
+  duration: `${1.8 + (index % 5) * 0.18}s`,
+  rotation: `${-40 + (index % 8) * 11}deg`,
+  drift: `${-36 + (index % 9) * 9}px`,
+}))
 
 type Direction = 'up' | 'down'
 type WalletAction = 'connect' | 'disconnect' | 'switch-chain'
@@ -91,6 +100,7 @@ export interface WalletUiState {
 interface TradeSimulationResult {
   amountLabel: string
   receiverLabel: string
+  transactionLabel: string
 }
 
 interface GameScreenProps {
@@ -195,7 +205,7 @@ function entryKey(entry: PriceEntry) {
 
 function getErrorMessage(error: unknown) {
   if (error instanceof Error && error.message) return error.message
-  return 'Unable to simulate the 1 USDC transfer.'
+  return 'Unable to send the 1 USDC transfer.'
 }
 
 async function fetchLatestPrice() {
@@ -281,7 +291,7 @@ export function GameScreen({
   const [roundResult, setRoundResult] = useState<RoundResult | null>(null)
   const [tradeNotice, setTradeNotice] = useState<TradeNotice>({
     tone: 'default',
-    message: `Each LONG/SHORT simulates ${SIMULATED_TRADE_AMOUNT.toFixed(2)} ${monadUsdc.symbol} to ${shortenAddress(monadTradeSimulationRecipient)} on ${CHAIN}.`,
+    message: `Each LONG/SHORT sends ${SIMULATED_TRADE_AMOUNT.toFixed(2)} ${monadUsdc.symbol} to ${shortenAddress(monadTradeSimulationRecipient)} on ${CHAIN}.`,
   })
 
   const deferredCache = useDeferredValue(cache)
@@ -927,7 +937,7 @@ export function GameScreen({
       if (!wallet.connected) {
         setTradeNotice({
           tone: 'error',
-          message: 'Connect your wallet to simulate the 1 USDC transfer.',
+          message: 'Connect your wallet to send the 1 USDC transfer.',
         })
         await onConnectWallet()
         return
@@ -948,7 +958,7 @@ export function GameScreen({
       ) {
         setTradeNotice({
           tone: 'error',
-          message: `You need at least ${SIMULATED_TRADE_AMOUNT.toFixed(2)} ${monadUsdc.symbol} to simulate this transfer.`,
+          message: `You need at least ${SIMULATED_TRADE_AMOUNT.toFixed(2)} ${monadUsdc.symbol} to send this transfer.`,
         })
         return
       }
@@ -967,7 +977,7 @@ export function GameScreen({
       setTradePendingDirection(direction)
       setTradeNotice({
         tone: 'pending',
-        message: `Simulating ${SIMULATED_TRADE_AMOUNT.toFixed(2)} ${monadUsdc.symbol} on ${CHAIN}...`,
+        message: `Confirm the ${SIMULATED_TRADE_AMOUNT.toFixed(2)} ${monadUsdc.symbol} transfer in your wallet...`,
       })
 
       try {
@@ -976,7 +986,7 @@ export function GameScreen({
         if (roundStateRef.current !== 'open' || activeBetRef.current) {
           setTradeNotice({
             tone: 'error',
-            message: 'The round closed before the simulation finished.',
+            message: 'The round closed before the transfer was submitted.',
           })
           return
         }
@@ -1006,7 +1016,7 @@ export function GameScreen({
 
         setTradeNotice({
           tone: 'success',
-          message: `Simulation ready: ${simulation.amountLabel} -> ${simulation.receiverLabel}.`,
+          message: `Transfer sent: ${simulation.amountLabel} -> ${simulation.receiverLabel} (${simulation.transactionLabel}).`,
         })
 
         if (window.innerWidth <= 768) {
@@ -1099,13 +1109,13 @@ export function GameScreen({
   const walletDisabled = !wallet.interactive && !wallet.connected
   const longLabel =
     tradePendingDirection === 'up'
-      ? 'SIMULATING'
+      ? 'SENDING'
       : activeBet?.direction === 'up'
         ? 'PLACED'
         : 'LONG'
   const shortLabel =
     tradePendingDirection === 'down'
-      ? 'SIMULATING'
+      ? 'SENDING'
       : activeBet?.direction === 'down'
         ? 'PLACED'
         : 'SHORT'
@@ -1199,6 +1209,26 @@ export function GameScreen({
           <div className={styles.center}>
             <div className={styles.chartArea}>
               <canvas ref={canvasRef} className={styles.priceCanvas} />
+
+              {roundResult?.tone === 'win' ? (
+                <div className={styles.confettiBurst} aria-hidden="true">
+                  {CONFETTI_PIECES.map((piece) => (
+                    <span
+                      key={piece.id}
+                      className={styles.confettiPiece}
+                      style={
+                        {
+                          left: piece.left,
+                          animationDelay: piece.delay,
+                          animationDuration: piece.duration,
+                          ['--confetti-rotate' as string]: piece.rotation,
+                          ['--confetti-drift' as string]: piece.drift,
+                        } as CSSProperties
+                      }
+                    />
+                  ))}
+                </div>
+              ) : null}
 
               <div className={styles.pnlOverlay}>
                 <div
