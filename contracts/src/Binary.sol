@@ -134,10 +134,10 @@ contract Binary is Ownable, Pausable, ReentrancyGuard {
     {
         require(amount > 0, "Binary: zero amount");
 
-        IERC20 asset = IERC20(vault.asset());
+        IERC20 depositAsset = asset();
 
         // Pull funds from trader
-        asset.safeTransferFrom(msg.sender, address(this), amount);
+        depositAsset.safeTransferFrom(msg.sender, address(this), amount);
 
         // Deduct protocol fee — sent directly into LiquidityVault as LP yield
         uint256 feeBps_ = feeBps();
@@ -146,7 +146,7 @@ contract Binary is Ownable, Pausable, ReentrancyGuard {
             stake = amount;
         } else {
             uint256 fee = (amount * feeBps_) / BPS_DENOMINATION;
-            asset.safeTransfer(address(vault), fee);
+            depositAsset.safeTransfer(address(vault), fee);
             stake = amount - fee;
         }
         require(stake <= maxPayout(), "Binary: stake exceeds max");
@@ -160,7 +160,7 @@ contract Binary is Ownable, Pausable, ReentrancyGuard {
         );
 
         // Transfer stake into vault
-        asset.safeTransfer(address(vault), stake);
+        depositAsset.safeTransfer(address(vault), stake);
 
         // Get entry price and compute liquidation price
         uint256 entryPrice = oracle().getPrice();
