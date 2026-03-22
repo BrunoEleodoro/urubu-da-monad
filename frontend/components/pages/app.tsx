@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { useFrame } from '@/components/farcaster-provider'
 import { GameScreen, type WalletUiState } from '@/components/game-screen'
+import { OnboardingScreen } from '@/components/onboarding-screen'
 import {
   usePasskeyTradeTransfer,
   usePasskeyWallet,
@@ -33,7 +34,7 @@ function shortenAddress(address?: string | null) {
 }
 
 function getErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : 'Wallet connection failed'
+  return error instanceof Error ? error.message : 'Falha ao conectar a carteira.'
 }
 
 export default function App() {
@@ -51,6 +52,18 @@ export default function App() {
 
   const canUsePasskey = passkeyWallet.enabled && !isEthProviderAvailable
   const passkeyConnected = canUsePasskey && passkeyWallet.connected
+  const knownAddress =
+    isConnected
+      ? address
+      : canUsePasskey
+        ? (passkeyWallet.address as `0x${string}` | null) ?? undefined
+        : undefined
+  const showOnboarding =
+    !isEthProviderAvailable &&
+    canUsePasskey &&
+    passkeyWallet.isReady &&
+    !passkeyWallet.hasWallet &&
+    overlayMode === null
   const walletConnected = isConnected || passkeyConnected
   const activeAddress = isConnected
     ? address
@@ -88,7 +101,7 @@ export default function App() {
       )
 
       if (!farcasterConnector) {
-        setWalletError('Farcaster wallet connector unavailable.')
+        setWalletError('Conector da carteira Farcaster indisponivel.')
         return
       }
 
@@ -109,7 +122,7 @@ export default function App() {
       return
     }
 
-    setWalletError('Passkeys are not available in this browser.')
+    setWalletError('Passkeys nao estao disponiveis neste navegador.')
   }, [canUsePasskey, connectAsync, connectors, isEthProviderAvailable, openPasskeyWallet])
 
   const switchToMonad = useCallback(async () => {
@@ -121,7 +134,7 @@ export default function App() {
       await switchChainAsync({ chainId: monadMainnet.id })
     } catch (error) {
       setWalletError(
-        error instanceof Error ? error.message : 'Network switch failed',
+        error instanceof Error ? error.message : 'Falha ao trocar de rede.',
       )
     }
   }, [passkeyConnected, switchChainAsync])
@@ -193,43 +206,43 @@ export default function App() {
         ? 'disconnect'
         : 'connect'
 
-    let status = 'Open in Warpcast or use a passkey wallet'
+    let status = 'Abra no Warpcast ou use uma carteira com passkey'
 
     if (walletError) {
       status = walletError
     } else if (isBusy) {
-      status = 'Preparing your wallet...'
+      status = 'Preparando sua carteira...'
     } else if (passkeyConnected) {
-      status = 'Connected with passkey wallet'
+      status = 'Conectado com carteira por passkey'
     } else if (isConnected && onMonad) {
-      status = `Connected with ${connector?.name ?? 'wallet'}`
+      status = `Conectado com ${connector?.name ?? 'carteira'}`
     } else if (isConnected) {
-      status = 'Switch to Monad Mainnet'
+      status = 'Troque para a Monad Mainnet'
     } else if (canUsePasskey && passkeyWallet.hasWallet) {
-      status = 'Unlock your passkey wallet'
+      status = 'Desbloqueie sua carteira com passkey'
     } else if (canUsePasskey) {
-      status = 'Create your passkey wallet'
+      status = 'Crie sua carteira com passkey'
     } else if (isEthProviderAvailable) {
-      status = 'Connect your Farcaster wallet'
+      status = 'Conecte sua carteira do Farcaster'
     } else if (isLoading) {
-      status = 'Loading Farcaster client...'
+      status = 'Carregando cliente do Farcaster...'
     } else if (isSDKLoaded) {
-      status = 'Wallet provider unavailable'
+      status = 'Provedor de carteira indisponivel'
     } else if (hasWalletOption) {
-      status = 'Connect your wallet'
+      status = 'Conecte sua carteira'
     }
 
     const buttonLabel = isBusy
-      ? 'Connecting...'
+      ? 'Conectando...'
       : walletConnected
-        ? shortenAddress(activeAddress) || 'Wallet connected'
+        ? shortenAddress(activeAddress) || 'Carteira conectada'
         : canUsePasskey
           ? passkeyWallet.hasWallet
-            ? 'Unlock wallet'
-            : 'Create wallet'
+            ? 'Desbloquear'
+            : 'Criar carteira'
           : hasWalletOption
-            ? 'Connect wallet'
-            : 'Unavailable'
+            ? 'Conectar carteira'
+            : 'Indisponivel'
 
     return {
       connected: walletConnected,
@@ -237,23 +250,22 @@ export default function App() {
       interactive: walletConnected || hasWalletOption,
       action,
       buttonLabel,
-      address: activeAddress ?? '',
-      addressLabel: shortenAddress(activeAddress),
+      address: knownAddress ?? '',
+      addressLabel: shortenAddress(knownAddress),
       usdcBalanceLabel: usdcBalance
         ? `${Number(usdcBalance.formatted).toFixed(2)} ${usdcBalance.symbol}`
         : '',
       usdcBalanceValue: usdcBalance ? Number(usdcBalance.formatted) : null,
       chainLabel: passkeyConnected
-        ? 'Passkey wallet on Monad Mainnet'
+        ? 'Carteira por passkey na Monad Mainnet'
         : onMonad
-          ? `${connector?.name ?? 'Wallet'} on Monad Mainnet`
+          ? `${connector?.name ?? 'Carteira'} na Monad Mainnet`
           : chainId
-            ? `Chain ${chainId}`
+            ? `Rede ${chainId}`
             : '',
       status,
     }
   }, [
-    activeAddress,
     canUsePasskey,
     chainId,
     connector?.name,
@@ -263,6 +275,7 @@ export default function App() {
     isLoading,
     isSDKLoaded,
     isSwitchingChain,
+    knownAddress,
     onMonad,
     passkeyConnected,
     passkeyWallet.connected,
@@ -278,7 +291,7 @@ export default function App() {
     setWalletError(null)
 
     if (!activeAddress || !walletConnected) {
-      throw new Error('Connect your wallet first.')
+      throw new Error('Conecte sua carteira primeiro.')
     }
 
     const amount = parseUnits('1', monadUsdc.decimals)
@@ -298,7 +311,7 @@ export default function App() {
     }
 
     if (chainId !== monadMainnet.id) {
-      throw new Error('Switch to Monad Mainnet first.')
+      throw new Error('Troque para a Monad Mainnet primeiro.')
     }
 
     const hash = await writeContractAsync({
@@ -327,6 +340,7 @@ export default function App() {
   if (overlayMode === 'passkey') {
     return (
       <PasskeyWalletView
+        address={passkeyWallet.address}
         addressLabel={shortenAddress(passkeyWallet.address)}
         busy={passkeyWallet.isAuthenticating || passkeyWallet.isDisconnecting}
         connected={passkeyWallet.connected}
@@ -338,6 +352,16 @@ export default function App() {
         onCreateWallet={createPasskeyWallet}
         onDisconnectWallet={disconnectPasskeyWallet}
         onUnlockWallet={unlockPasskeyWallet}
+      />
+    )
+  }
+
+  if (showOnboarding) {
+    return (
+      <OnboardingScreen
+        busy={passkeyWallet.isAuthenticating}
+        error={walletError}
+        onCreateWallet={createPasskeyWallet}
       />
     )
   }

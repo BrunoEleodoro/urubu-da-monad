@@ -1,10 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 import styles from './passkey-wallet-screen.module.css'
 
 interface PasskeyWalletViewProps {
+  address: string | null
   addressLabel: string
   busy: boolean
   connected: boolean
@@ -19,6 +20,7 @@ interface PasskeyWalletViewProps {
 }
 
 export function PasskeyWalletView({
+  address,
   addressLabel,
   busy,
   connected,
@@ -31,28 +33,62 @@ export function PasskeyWalletView({
   onDisconnectWallet,
   onUnlockWallet,
 }: PasskeyWalletViewProps) {
-  const [walletLabel, setWalletLabel] = useState(label ?? 'Urubu Money Wallet')
+  const [walletLabel, setWalletLabel] = useState(label ?? 'Carteira Urubu')
+  const [addressCopied, setAddressCopied] = useState(false)
 
   const title = !enabled
-    ? 'Passkeys unavailable'
+    ? 'Passkeys indisponiveis'
     : hasWallet
       ? connected
-        ? 'Passkey wallet connected'
-        : 'Unlock your passkey wallet'
-      : 'Create your passkey wallet'
+        ? 'Carteira com passkey conectada'
+        : 'Desbloqueie sua carteira com passkey'
+      : 'Crie sua carteira com passkey'
 
   const description = !enabled
-    ? 'This browser does not expose WebAuthn, so only Farcaster wallet connection is available here.'
+    ? 'Este navegador nao expoe WebAuthn, entao aqui so o fluxo de carteira do Farcaster fica disponivel.'
     : hasWallet
-      ? 'This wallet lives on this browser under urubu.money. Every trade asks for a passkey confirmation before the 1 USDC transfer is sent on Monad.'
-      : 'Create a browser-only wallet protected by your device passkey. No extension, no email fallback, and no injected wallet support.'
+      ? 'Essa carteira vive neste navegador dentro de urubu.money. Cada operacao pede a confirmacao da passkey antes do envio real de 1 USDC na Monad.'
+      : 'Crie uma carteira no navegador protegida pela passkey do seu dispositivo. Sem extensao, sem email e sem carteiras injetadas.'
+
+  const handleCopyAddress = useCallback(async () => {
+    if (!address) return
+
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(address)
+      setAddressCopied(true)
+      return
+    }
+
+    const textArea = document.createElement('textarea')
+    textArea.value = address
+    textArea.setAttribute('readonly', '')
+    textArea.style.position = 'absolute'
+    textArea.style.left = '-9999px'
+    document.body.appendChild(textArea)
+    textArea.select()
+    document.execCommand('copy')
+    document.body.removeChild(textArea)
+    setAddressCopied(true)
+  }, [address])
+
+  useEffect(() => {
+    if (!addressCopied) return
+
+    const timeout = window.setTimeout(() => {
+      setAddressCopied(false)
+    }, 1800)
+
+    return () => {
+      window.clearTimeout(timeout)
+    }
+  }, [addressCopied])
 
   return (
     <main className={styles.screen}>
       <section className={styles.shell} aria-labelledby="passkey-wallet-title">
         <header className={styles.header}>
           <div className={styles.headerCopy}>
-            <span className={styles.badge}>Browser passkey flow</span>
+            <span className={styles.badge}>Carteira por passkey</span>
             <h2 id="passkey-wallet-title" className={styles.title}>
               {title}
             </h2>
@@ -64,7 +100,7 @@ export function PasskeyWalletView({
             className={styles.closeButton}
             onClick={onBack}
           >
-            Back to game
+            Voltar ao jogo
           </button>
         </header>
 
@@ -72,28 +108,46 @@ export function PasskeyWalletView({
           <div className={styles.notice}>
             {hasWallet ? (
               <>
-                <strong>{label ?? 'Urubu Money Wallet'}</strong>
+                <strong>{label ?? 'Carteira Urubu'}</strong>
                 <span>{addressLabel ? ` ${addressLabel}` : ''}</span>
               </>
             ) : (
-              'The first passkey you create here becomes the only browser wallet for this app.'
+              'A primeira passkey criada aqui vira a carteira principal deste navegador para o app.'
             )}
           </div>
 
           {!enabled ? (
             <div className={styles.emptyState}>
-              WebAuthn is not available in this browser session.
+              WebAuthn nao esta disponivel nesta sessao do navegador.
             </div>
           ) : hasWallet ? (
             <div className={styles.cardWrap}>
               <div className={styles.card}>
-                <div className={styles.cardLabel}>Stored wallet</div>
+                <div className={styles.cardLabel}>Carteira salva</div>
                 <div className={styles.cardTitle}>
-                  {label ?? 'Urubu Money Wallet'}
+                  {label ?? 'Carteira Urubu'}
                 </div>
                 <div className={styles.cardMeta}>
-                  {addressLabel || 'Passkey-protected Monad wallet'}
+                  {addressLabel || 'Carteira Monad protegida por passkey'}
                 </div>
+
+                {address ? (
+                  <div className={styles.addressBox}>
+                    <div className={styles.addressBoxLabel}>
+                      Endereco para receber USDC
+                    </div>
+                    <div className={styles.addressValue}>{address}</div>
+                    <button
+                      type="button"
+                      className={styles.copyButton}
+                      onClick={() => {
+                        void handleCopyAddress()
+                      }}
+                    >
+                      {addressCopied ? 'Endereco copiado' : 'Copiar endereco'}
+                    </button>
+                  </div>
+                ) : null}
 
                 <button
                   type="button"
@@ -103,7 +157,11 @@ export function PasskeyWalletView({
                   }}
                   disabled={busy || connected}
                 >
-                  {connected ? 'Wallet unlocked' : busy ? 'Waiting for passkey...' : 'Unlock with passkey'}
+                  {connected
+                    ? 'Carteira desbloqueada'
+                    : busy
+                      ? 'Aguardando passkey...'
+                      : 'Desbloquear com passkey'}
                 </button>
 
                 {connected ? (
@@ -115,7 +173,7 @@ export function PasskeyWalletView({
                     }}
                     disabled={busy}
                   >
-                    Disconnect
+                    Desconectar
                   </button>
                 ) : null}
               </div>
@@ -124,7 +182,7 @@ export function PasskeyWalletView({
             <div className={styles.cardWrap}>
               <div className={styles.card}>
                 <label className={styles.field} htmlFor="passkey-wallet-label">
-                  Wallet name
+                  Nome da carteira
                 </label>
                 <input
                   id="passkey-wallet-label"
@@ -132,7 +190,7 @@ export function PasskeyWalletView({
                   value={walletLabel}
                   onChange={(event) => setWalletLabel(event.target.value)}
                   maxLength={32}
-                  placeholder="Urubu Money Wallet"
+                  placeholder="Carteira Urubu"
                 />
 
                 <button
@@ -143,12 +201,12 @@ export function PasskeyWalletView({
                   }}
                   disabled={busy}
                 >
-                  {busy ? 'Creating passkey wallet...' : 'Create passkey wallet'}
+                  {busy ? 'Criando carteira com passkey...' : 'Criar carteira com passkey'}
                 </button>
 
                 <p className={styles.helper}>
-                  This wallet is tied to this browser storage. If you clear site
-                  data, you will need to create a new wallet.
+                  Essa carteira fica vinculada ao armazenamento deste navegador.
+                  Se voce limpar os dados do site, precisara criar outra.
                 </p>
               </div>
             </div>

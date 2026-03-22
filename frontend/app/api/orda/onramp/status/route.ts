@@ -30,7 +30,7 @@ export async function GET(request: Request) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         {
-          message: error.issues[0]?.message || 'Missing transaction ID.',
+          message: error.issues[0]?.message || 'Falta o ID da transacao.',
         },
         {
           headers: {
@@ -43,7 +43,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json(
       {
-        message: getOrdaErrorMessage(error, 'Unable to fetch the on-ramp status.'),
+        message: getOrdaErrorMessage(error, 'Nao foi possivel consultar o status do deposito.'),
       },
       {
         headers: {

@@ -26,7 +26,7 @@ export async function POST(request: Request) {
         error:
           error instanceof Error
             ? error.message
-            : 'Unable to verify the passkey.',
+            : 'Nao foi possivel verificar a passkey.',
       },
       { status: 400 },
     )

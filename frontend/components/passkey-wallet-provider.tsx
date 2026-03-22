@@ -44,7 +44,7 @@ const PasskeyWalletContext = createContext<PasskeyWalletContextValue | null>(nul
 
 function getErrorMessage(error: unknown) {
   if (error instanceof Error && error.message) return error.message
-  return 'Passkey request failed.'
+  return 'Falha na requisicao de passkey.'
 }
 
 async function requestJson<T>(input: RequestInfo, init?: RequestInit) {
@@ -58,7 +58,7 @@ async function requestJson<T>(input: RequestInfo, init?: RequestInit) {
     throw new Error(
       payload && typeof payload === 'object' && 'error' in payload && payload.error
         ? payload.error
-        : `HTTP ${response.status}`,
+        : `Erro HTTP ${response.status}`,
     )
   }
 

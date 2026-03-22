@@ -70,19 +70,45 @@ function formatTokenAmount(value: string, symbol: string) {
     return `${value} ${symbol}`
   }
 
-  return `${numericValue.toLocaleString('en-US', {
+  return `${numericValue.toLocaleString('pt-BR', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 6,
   })} ${symbol}`
 }
 
+function formatOrdaStatus(value?: string | null) {
+  if (!value) return ''
+
+  const normalized = value.trim().toLowerCase()
+  const dictionary: Record<string, string> = {
+    completed: 'Concluido',
+    complete: 'Concluido',
+    failed: 'Falhou',
+    pending: 'Pendente',
+    processing: 'Processando',
+    created: 'Criado',
+    initiated: 'Iniciado',
+    settled: 'Liquidado',
+    settling: 'Liquidando',
+    paid: 'Pago',
+    quote_ready: 'Cotacao pronta',
+    'quote ready': 'Cotacao pronta',
+    pending_payment: 'Aguardando pagamento',
+    'pending payment': 'Aguardando pagamento',
+    awaiting_payment: 'Aguardando pagamento',
+    'awaiting payment': 'Aguardando pagamento',
+  }
+
+  return dictionary[normalized] ?? value
+}
+
 function formatDuration(seconds: number) {
   if (!Number.isFinite(seconds) || seconds <= 0) {
-    return 'A few minutes'
+    return 'Alguns minutos'
   }
 
   if (seconds < 60) {
-    return `${Math.round(seconds)} sec`
+    return `${Math.round(seconds)} s`
   }
 
   const minutes = Math.round(seconds / 60)
@@ -90,12 +116,12 @@ function formatDuration(seconds: number) {
 }
 
 function formatDateTime(value?: string | Date | null) {
-  if (!value) return 'Waiting for update'
+  if (!value) return 'Aguardando atualizacao'
 
   const date = value instanceof Date ? value : new Date(value)
 
   if (Number.isNaN(date.getTime())) {
-    return 'Waiting for update'
+    return 'Aguardando atualizacao'
   }
 
   return date.toLocaleString('pt-BR', {
@@ -124,7 +150,7 @@ async function getJson<T>(input: RequestInfo, init?: RequestInit) {
       'message' in payload &&
       typeof payload.message === 'string'
         ? payload.message
-        : 'Unable to complete this request.'
+        : 'Nao foi possivel concluir esta solicitacao.'
 
     throw new Error(
       message,
@@ -166,13 +192,13 @@ export function OrdaRampView({
   })
 
   const isOnRamp = mode === 'onRamp'
-  const title = isOnRamp ? 'On-ramp' : 'Off-ramp'
+  const title = isOnRamp ? 'Depositar' : 'Sacar'
   const description = isOnRamp
-    ? 'Generate PIX instructions with the Orda SDK and receive USDC on a supported EVM network.'
-    : 'Generate a BRL cash-out quote with the Orda SDK and receive the payout through PIX.'
+    ? 'Gere instrucoes de PIX com o SDK da Orda e receba USDC em uma rede EVM suportada.'
+    : 'Gere uma cotacao de saque em BRL com o SDK da Orda e receba o pagamento via PIX.'
   const note = isOnRamp
-    ? 'Monad is still marked as in progress in Orda coverage, so this flow settles on supported EVM networks while the game itself stays Monad-only.'
-    : 'Use the same EVM address format you already control. The game stays on Monad, but Orda off-ramp settlement happens on supported EVM networks.'
+    ? 'A Monad ainda aparece como em andamento na cobertura da Orda, entao este fluxo liquida em redes EVM suportadas enquanto o jogo continua exclusivo da Monad.'
+    : 'Use o mesmo formato de endereco EVM que voce ja controla. O jogo continua na Monad, mas a liquidacao do saque da Orda acontece nas redes EVM suportadas.'
 
   const onRampAsset = useMemo(
     () => getOrdaRampAsset(onRampForm.assetKey),
@@ -343,7 +369,7 @@ export function OrdaRampView({
 
       setOnRampQuote(quote)
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : 'Unable to create the on-ramp quote.')
+      setError(nextError instanceof Error ? nextError.message : 'Nao foi possivel criar a cotacao de deposito.')
     } finally {
       setLoading(false)
     }
@@ -368,23 +394,23 @@ export function OrdaRampView({
 
       setOffRampQuote(quote)
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : 'Unable to create the off-ramp quote.')
+      setError(nextError instanceof Error ? nextError.message : 'Nao foi possivel criar a cotacao de saque.')
     } finally {
       setLoading(false)
     }
   }
 
-  const resultTitle = isOnRamp ? 'PIX instructions' : 'Cash-out quote'
+  const resultTitle = isOnRamp ? 'Instrucoes de PIX' : 'Cotacao de saque'
   const resultHint = isOnRamp
-    ? 'The PIX code below comes directly from your latest Orda on-ramp quote.'
-    : 'This quote comes directly from Orda. Send the source asset only if you want to continue with the payout.'
+    ? 'O codigo PIX abaixo vem direto da sua cotacao mais recente de deposito na Orda.'
+    : 'Esta cotacao vem direto da Orda. Envie o ativo de origem somente se quiser continuar com o saque.'
 
   return (
     <main className={styles.screen}>
       <section className={styles.shell} aria-labelledby="orda-ramp-title">
         <header className={styles.header}>
           <div className={styles.headerCopy}>
-            <span className={styles.badge}>Powered by Orda SDK</span>
+            <span className={styles.badge}>Integração via Orda SDK</span>
             <h2 id="orda-ramp-title" className={styles.title}>
               {title}
             </h2>
@@ -396,7 +422,7 @@ export function OrdaRampView({
             className={styles.closeButton}
             onClick={onBack}
           >
-            Back to game
+            Voltar ao jogo
           </button>
         </header>
 
@@ -404,7 +430,7 @@ export function OrdaRampView({
           <div className={styles.notice}>{note}</div>
 
           <div className={styles.supportedNetworks}>
-            Supported EVM routes today: {ORDA_RAMP_NETWORK_LABELS.join(', ')}.
+            Rotas EVM suportadas hoje: {ORDA_RAMP_NETWORK_LABELS.join(', ')}.
           </div>
 
           <div className={styles.grid}>
@@ -412,10 +438,10 @@ export function OrdaRampView({
               <div className={styles.panelHeader}>
                 <div>
                   <div className={styles.panelEyebrow}>
-                    {isOnRamp ? 'BRL to crypto' : 'Crypto to BRL'}
+                    {isOnRamp ? 'BRL para cripto' : 'Cripto para BRL'}
                   </div>
                   <h3 className={styles.panelTitle}>
-                    {isOnRamp ? 'Create a PIX deposit' : 'Create a PIX cash-out'}
+                    {isOnRamp ? 'Criar deposito via PIX' : 'Criar saque via PIX'}
                   </h3>
                 </div>
                 <span className={styles.panelMeta}>
@@ -434,7 +460,7 @@ export function OrdaRampView({
               {isOnRamp ? (
                 <div className={styles.formGrid}>
                   <label className={styles.field}>
-                    <span className={styles.fieldLabel}>Destination asset</span>
+                    <span className={styles.fieldLabel}>Ativo de destino</span>
                     <select
                       value={onRampForm.assetKey}
                       className={styles.fieldControl}
@@ -451,7 +477,7 @@ export function OrdaRampView({
                   </label>
 
                   <label className={styles.field}>
-                    <span className={styles.fieldLabel}>BRL amount</span>
+                    <span className={styles.fieldLabel}>Valor em BRL</span>
                     <input
                       type="number"
                       inputMode="decimal"
@@ -466,9 +492,7 @@ export function OrdaRampView({
                   </label>
 
                   <label className={cn(styles.field, styles.fieldWide)}>
-                    <span className={styles.fieldLabel}>
-                      Destination address
-                    </span>
+                    <span className={styles.fieldLabel}>Endereco de destino</span>
                     <input
                       type="text"
                       value={onRampForm.toAddress}
@@ -488,13 +512,13 @@ export function OrdaRampView({
                     }}
                     disabled={loading || !onRampAsset}
                   >
-                    {loading ? 'Generating quote...' : 'Generate PIX instructions'}
+                    {loading ? 'Gerando cotacao...' : 'Gerar instrucoes de PIX'}
                   </button>
                 </div>
               ) : (
                 <div className={styles.formGrid}>
                   <label className={styles.field}>
-                    <span className={styles.fieldLabel}>Source asset</span>
+                    <span className={styles.fieldLabel}>Ativo de origem</span>
                     <select
                       value={offRampForm.assetKey}
                       className={styles.fieldControl}
@@ -511,7 +535,7 @@ export function OrdaRampView({
                   </label>
 
                   <label className={styles.field}>
-                    <span className={styles.fieldLabel}>Token amount</span>
+                    <span className={styles.fieldLabel}>Quantidade do token</span>
                     <input
                       type="number"
                       inputMode="decimal"
@@ -526,7 +550,7 @@ export function OrdaRampView({
                   </label>
 
                   <label className={cn(styles.field, styles.fieldWide)}>
-                    <span className={styles.fieldLabel}>Source address</span>
+                    <span className={styles.fieldLabel}>Endereco de origem</span>
                     <input
                       type="text"
                       value={offRampForm.fromAddress}
@@ -542,7 +566,7 @@ export function OrdaRampView({
                   </label>
 
                   <label className={styles.field}>
-                    <span className={styles.fieldLabel}>Full name</span>
+                    <span className={styles.fieldLabel}>Nome completo</span>
                     <input
                       type="text"
                       value={offRampForm.name}
@@ -568,7 +592,7 @@ export function OrdaRampView({
                   </label>
 
                   <label className={styles.field}>
-                    <span className={styles.fieldLabel}>CPF or CNPJ</span>
+                    <span className={styles.fieldLabel}>CPF ou CNPJ</span>
                     <input
                       type="text"
                       value={offRampForm.taxId}
@@ -581,7 +605,7 @@ export function OrdaRampView({
                   </label>
 
                   <label className={styles.field}>
-                    <span className={styles.fieldLabel}>PIX key</span>
+                    <span className={styles.fieldLabel}>Chave PIX</span>
                     <input
                       type="text"
                       value={offRampForm.pixKey}
@@ -601,7 +625,7 @@ export function OrdaRampView({
                     }}
                     disabled={loading || !offRampAsset}
                   >
-                    {loading ? 'Generating quote...' : 'Generate cash-out quote'}
+                    {loading ? 'Gerando cotacao...' : 'Gerar cotacao de saque'}
                   </button>
                 </div>
               )}
@@ -610,10 +634,10 @@ export function OrdaRampView({
             <section className={styles.panel}>
               <div className={styles.panelHeader}>
                 <div>
-                  <div className={styles.panelEyebrow}>Latest result</div>
+                  <div className={styles.panelEyebrow}>Resultado mais recente</div>
                   <h3 className={styles.panelTitle}>{resultTitle}</h3>
                 </div>
-                <span className={styles.panelMeta}>Live SDK response</span>
+                <span className={styles.panelMeta}>Resposta ao vivo do SDK</span>
               </div>
 
               <p className={styles.resultHint}>{resultHint}</p>
@@ -622,7 +646,7 @@ export function OrdaRampView({
                 <div className={styles.resultStack}>
                   <div className={styles.heroCard}>
                     <div>
-                      <span className={styles.heroLabel}>Pay via PIX</span>
+                      <span className={styles.heroLabel}>Pagar via PIX</span>
                       <div className={styles.heroAmount}>
                         {formatCurrency(
                           onRampQuote.depositInstructions.amount,
@@ -634,14 +658,14 @@ export function OrdaRampView({
                           onRampQuote.quote.toAmount,
                           onRampAsset?.symbol ?? 'USDC',
                         )}{' '}
-                        to {onRampAsset?.chainLabel ?? 'network'}
+                        para {onRampAsset?.chainLabel ?? 'rede'}
                       </div>
                     </div>
 
                     {qrCodeSrc ? (
                       <img
                         src={qrCodeSrc}
-                        alt="PIX QR code"
+                        alt="QR code PIX"
                         className={styles.qrCode}
                       />
                     ) : null}
@@ -649,17 +673,17 @@ export function OrdaRampView({
 
                   <div className={styles.metrics}>
                     <div className={styles.metric}>
-                      <span className={styles.metricLabel}>Provider</span>
+                      <span className={styles.metricLabel}>Provedor</span>
                       <strong>{onRampQuote.quote.provider}</strong>
                     </div>
                     <div className={styles.metric}>
-                      <span className={styles.metricLabel}>PIX key</span>
+                      <span className={styles.metricLabel}>Chave PIX</span>
                       <strong className={styles.breakValue}>
-                        {onRampQuote.depositInstructions.pixKey || 'Provided in your bank app'}
+                        {onRampQuote.depositInstructions.pixKey || 'Disponivel no app do seu banco'}
                       </strong>
                     </div>
                     <div className={styles.metric}>
-                      <span className={styles.metricLabel}>Expires</span>
+                      <span className={styles.metricLabel}>Expira em</span>
                       <strong>
                         {formatDateTime(onRampQuote.depositInstructions.expiresAt)}
                       </strong>
@@ -671,11 +695,11 @@ export function OrdaRampView({
                       </strong>
                     </div>
                     <div className={styles.metric}>
-                      <span className={styles.metricLabel}>Exchange rate</span>
+                      <span className={styles.metricLabel}>Taxa de cambio</span>
                       <strong>
                         1 {onRampQuote.quote.fromCurrency} ={' '}
                         {Number(onRampQuote.quote.exchangeRate).toLocaleString(
-                          'en-US',
+                          'pt-BR',
                           {
                             minimumFractionDigits: 2,
                             maximumFractionDigits: 6,
@@ -685,7 +709,7 @@ export function OrdaRampView({
                       </strong>
                     </div>
                     <div className={styles.metric}>
-                      <span className={styles.metricLabel}>Transaction ID</span>
+                      <span className={styles.metricLabel}>ID da transacao</span>
                       <strong className={styles.breakValue}>
                         {onRampQuote.transactionId}
                       </strong>
@@ -701,24 +725,24 @@ export function OrdaRampView({
                           styles.statusBadgeNeutral,
                         )}
                       >
-                        {onRampStatus?.status || 'Pending payment'}
+                        {formatOrdaStatus(onRampStatus?.status) || 'Aguardando pagamento'}
                       </span>
                     </div>
                     <div className={styles.statusGrid}>
                       <div>
-                        <span className={styles.statusLabel}>Deposit status</span>
-                        <strong>{onRampStatus?.depositStatus || 'Awaiting payment'}</strong>
+                        <span className={styles.statusLabel}>Status do deposito</span>
+                        <strong>{formatOrdaStatus(onRampStatus?.depositStatus) || 'Aguardando pagamento'}</strong>
                       </div>
                       <div>
-                        <span className={styles.statusLabel}>Settlement</span>
+                        <span className={styles.statusLabel}>Liquidacao</span>
                         <strong>{onRampStatus?.settlementAddress || onRampForm.toAddress}</strong>
                       </div>
                       <div>
-                        <span className={styles.statusLabel}>Created</span>
+                        <span className={styles.statusLabel}>Criado em</span>
                         <strong>{formatDateTime(onRampStatus?.createdAt)}</strong>
                       </div>
                       <div>
-                        <span className={styles.statusLabel}>Updated</span>
+                        <span className={styles.statusLabel}>Atualizado em</span>
                         <strong>{formatDateTime(onRampStatus?.updatedAt)}</strong>
                       </div>
                     </div>
@@ -730,7 +754,7 @@ export function OrdaRampView({
                 <div className={styles.resultStack}>
                   <div className={styles.heroCard}>
                     <div>
-                      <span className={styles.heroLabel}>Estimated payout</span>
+                      <span className={styles.heroLabel}>Valor estimado de saque</span>
                       <div className={styles.heroAmount}>
                         {formatCurrency(offRampQuote.quote.toAmount, 'BRL')}
                       </div>
@@ -739,7 +763,7 @@ export function OrdaRampView({
                           offRampQuote.quote.fromAmount,
                           offRampQuote.quote.fromToken.symbol,
                         )}{' '}
-                        from {offRampAsset?.chainLabel ?? 'network'}
+                        saindo de {offRampAsset?.chainLabel ?? 'rede'}
                       </div>
                     </div>
                     <div className={styles.heroSide}>
@@ -752,32 +776,32 @@ export function OrdaRampView({
 
                   <div className={styles.metrics}>
                     <div className={styles.metric}>
-                      <span className={styles.metricLabel}>Provider</span>
+                      <span className={styles.metricLabel}>Provedor</span>
                       <strong>{offRampQuote.quote.provider}</strong>
                     </div>
                     <div className={styles.metric}>
-                      <span className={styles.metricLabel}>PIX payout</span>
+                      <span className={styles.metricLabel}>Recebimento PIX</span>
                       <strong>{offRampForm.pixKey}</strong>
                     </div>
                     <div className={styles.metric}>
-                      <span className={styles.metricLabel}>Exchange rate</span>
+                      <span className={styles.metricLabel}>Taxa de cambio</span>
                       <strong>{offRampQuote.quote.exchangeRate}</strong>
                     </div>
                     <div className={styles.metric}>
-                      <span className={styles.metricLabel}>Approval spender</span>
+                      <span className={styles.metricLabel}>Contrato de aprovacao</span>
                       <strong className={styles.breakValue}>
-                        {offRampApprovalTarget || 'No approval required'}
+                        {offRampApprovalTarget || 'Nenhuma aprovacao necessaria'}
                       </strong>
                     </div>
                     <div className={styles.metric}>
-                      <span className={styles.metricLabel}>Deposit contract</span>
+                      <span className={styles.metricLabel}>Contrato de deposito</span>
                       <strong className={styles.breakValue}>
                         {offRampDepositTarget ||
-                          'Orda did not return a transaction request'}
+                          'A Orda nao retornou uma solicitacao de transacao'}
                       </strong>
                     </div>
                     <div className={styles.metric}>
-                      <span className={styles.metricLabel}>Transaction ID</span>
+                      <span className={styles.metricLabel}>ID da transacao</span>
                       <strong className={styles.breakValue}>
                         {offRampQuote.transactionId}
                       </strong>
@@ -797,28 +821,28 @@ export function OrdaRampView({
                               : styles.statusBadgeNeutral,
                         )}
                       >
-                        {offRampStatus?.status || 'Quote ready'}
+                        {formatOrdaStatus(offRampStatus?.status) || 'Cotacao pronta'}
                       </span>
                     </div>
                     <div className={styles.statusGrid}>
                       <div>
-                        <span className={styles.statusLabel}>Deposit address</span>
+                        <span className={styles.statusLabel}>Endereco de deposito</span>
                         <strong className={styles.breakValue}>
                           {offRampStatus?.depositAddress ||
                             offRampDepositTarget ||
-                            'Awaiting provider instructions'}
+                            'Aguardando instrucoes do provedor'}
                         </strong>
                       </div>
                       <div>
-                        <span className={styles.statusLabel}>Deposit amount</span>
+                        <span className={styles.statusLabel}>Valor do deposito</span>
                         <strong>{offRampStatus?.depositAmount || offRampQuote.quote.fromAmount}</strong>
                       </div>
                       <div>
-                        <span className={styles.statusLabel}>Created</span>
+                        <span className={styles.statusLabel}>Criado em</span>
                         <strong>{formatDateTime(offRampStatus?.createdAt)}</strong>
                       </div>
                       <div>
-                        <span className={styles.statusLabel}>Updated</span>
+                        <span className={styles.statusLabel}>Atualizado em</span>
                         <strong>{formatDateTime(offRampStatus?.updatedAt)}</strong>
                       </div>
                     </div>
@@ -828,7 +852,7 @@ export function OrdaRampView({
 
               {(isOnRamp ? !onRampQuote : !offRampQuote) ? (
                 <div className={styles.emptyState}>
-                  Fill the form on the left and generate a live {isOnRamp ? 'on-ramp' : 'off-ramp'} quote.
+                  Preencha o formulario ao lado e gere uma cotacao ao vivo de {isOnRamp ? 'deposito' : 'saque'}.
                 </div>
               ) : null}
             </section>

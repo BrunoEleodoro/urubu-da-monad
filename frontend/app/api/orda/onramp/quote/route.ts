@@ -23,7 +23,7 @@ export async function POST(request: Request) {
     if (!asset) {
       return NextResponse.json(
         {
-          message: 'Unsupported on-ramp asset.',
+          message: 'Ativo de deposito nao suportado.',
         },
         {
           headers: {
@@ -56,7 +56,7 @@ export async function POST(request: Request) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         {
-          message: error.issues[0]?.message || 'Invalid on-ramp request.',
+          message: error.issues[0]?.message || 'Solicitacao de deposito invalida.',
         },
         {
           headers: {
@@ -69,7 +69,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json(
       {
-        message: getOrdaErrorMessage(error, 'Unable to create the on-ramp quote.'),
+        message: getOrdaErrorMessage(error, 'Nao foi possivel criar a cotacao de deposito.'),
       },
       {
         headers: {

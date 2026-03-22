@@ -32,7 +32,7 @@ export async function POST(request: Request) {
     if (!asset) {
       return NextResponse.json(
         {
-          message: 'Unsupported off-ramp asset.',
+          message: 'Ativo de saque nao suportado.',
         },
         {
           headers: {
@@ -48,7 +48,7 @@ export async function POST(request: Request) {
     if (normalizedTaxId.length < 11) {
       return NextResponse.json(
         {
-          message: 'Use a valid CPF or CNPJ.',
+          message: 'Use um CPF ou CNPJ valido.',
         },
         {
           headers: {
@@ -88,7 +88,7 @@ export async function POST(request: Request) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         {
-          message: error.issues[0]?.message || 'Invalid off-ramp request.',
+          message: error.issues[0]?.message || 'Solicitacao de saque invalida.',
         },
         {
           headers: {
@@ -101,7 +101,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json(
       {
-        message: getOrdaErrorMessage(error, 'Unable to create the off-ramp quote.'),
+        message: getOrdaErrorMessage(error, 'Nao foi possivel criar a cotacao de saque.'),
       },
       {
         headers: {

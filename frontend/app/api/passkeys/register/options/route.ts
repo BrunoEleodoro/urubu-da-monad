@@ -14,7 +14,7 @@ export async function POST(request: Request) {
     const snapshot = getSnapshot(cookies())
     if (snapshot.hasWallet) {
       return NextResponse.json(
-        { error: 'A passkey wallet already exists on this browser.' },
+        { error: 'Ja existe uma carteira com passkey neste navegador.' },
         { status: 409 },
       )
     }
@@ -37,7 +37,7 @@ export async function POST(request: Request) {
         error:
           error instanceof Error
             ? error.message
-            : 'Unable to start passkey registration.',
+            : 'Nao foi possivel iniciar o cadastro da passkey.',
       },
       { status: 400 },
     )

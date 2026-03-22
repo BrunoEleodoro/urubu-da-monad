@@ -13,7 +13,7 @@ export function getOrdaClient() {
   const clientSecret = process.env.ORDA_CLIENT_SECRET
 
   if (!clientId || !clientSecret) {
-    throw new Error('Orda credentials are not configured on the server.')
+    throw new Error('As credenciais da Orda nao estao configuradas no servidor.')
   }
 
   cachedClient = new OrdaSDK({
@@ -27,7 +27,7 @@ export function getOrdaClient() {
 
 export function getOrdaErrorMessage(
   error: unknown,
-  fallback = 'Unable to reach Orda right now.',
+  fallback = 'Nao foi possivel falar com a Orda agora.',
 ) {
   if (error instanceof Error && error.message) {
     return error.message

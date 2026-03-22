@@ -96,7 +96,7 @@ function getCookieSecret() {
   if (explicitSecret) return explicitSecret
 
   if (process.env.NODE_ENV === 'production') {
-    throw new Error('PASSKEY_WALLET_SECRET is required in production.')
+    throw new Error('PASSKEY_WALLET_SECRET e obrigatoria em producao.')
   }
 
   return 'urubu-local-dev-secret'
@@ -148,7 +148,7 @@ function cookieOptions(httpOnly = true) {
 
 function normalizeLabel(label?: string | null) {
   const trimmed = label?.trim()
-  if (!trimmed) return 'Urubu Money Wallet'
+  if (!trimmed) return 'Carteira Urubu'
   return trimmed.slice(0, 32)
 }
 
@@ -233,7 +233,7 @@ function consumeChallenge(
   clearCookie(responseCookies, CHALLENGE_COOKIE)
 
   if (!challenge || challenge.type !== type) {
-    throw new Error('Passkey challenge expired. Try again.')
+    throw new Error('O desafio da passkey expirou. Tente de novo.')
   }
 
   return challenge
@@ -331,7 +331,7 @@ export function createAuthenticationOptions(
 ) {
   const wallet = getWallet(cookieStore)
   if (!wallet) {
-    throw new Error('No passkey wallet found for this browser.')
+    throw new Error('Nenhuma carteira com passkey foi encontrada neste navegador.')
   }
 
   const { challenge, options } = Authentication.getOptions({
@@ -357,7 +357,7 @@ export function verifyAuthentication(
 ) {
   const wallet = getWallet(cookieStore)
   if (!wallet) {
-    throw new Error('No passkey wallet found for this browser.')
+    throw new Error('Nenhuma carteira com passkey foi encontrada neste navegador.')
   }
 
   const challenge = consumeChallenge(cookieStore, responseCookies, 'auth')
@@ -369,7 +369,7 @@ export function verifyAuthentication(
   })
 
   if (!valid) {
-    throw new Error('Passkey verification failed.')
+    throw new Error('Falha ao verificar a passkey.')
   }
 
   setPasskeySession(responseCookies, wallet.address as Address)
@@ -392,23 +392,23 @@ export async function sendUsdcTransfer(
   const session = getSession(cookieStore)
 
   if (!wallet || !session) {
-    throw new Error('Unlock your passkey wallet first.')
+    throw new Error('Desbloqueie sua carteira com passkey primeiro.')
   }
 
   if (wallet.address.toLowerCase() !== session.address.toLowerCase()) {
-    throw new Error('Wallet session mismatch. Unlock again.')
+    throw new Error('A sessao da carteira nao bate. Desbloqueie novamente.')
   }
 
   if (Date.now() - session.verifiedAt > PASSKEY_RECENT_AUTH_WINDOW_MS) {
-    throw new Error('Passkey confirmation expired. Confirm again.')
+    throw new Error('A confirmacao da passkey expirou. Confirme de novo.')
   }
 
   if (!isAddress(wallet.address) || !isAddress(recipient) || !isAddress(tokenAddress)) {
-    throw new Error('Invalid transfer payload.')
+    throw new Error('Payload de transferencia invalido.')
   }
 
   if (tokenAddress.toLowerCase() !== monadUsdc.address.toLowerCase()) {
-    throw new Error('Only Monad USDC transfers are supported.')
+    throw new Error('So transferencias de USDC na Monad sao suportadas.')
   }
 
   const account = privateKeyToAccount(wallet.privateKey as Hex)

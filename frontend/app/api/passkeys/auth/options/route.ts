@@ -23,7 +23,7 @@ export async function POST() {
         error:
           error instanceof Error
             ? error.message
-            : 'Unable to start passkey authentication.',
+            : 'Nao foi possivel iniciar a autenticacao por passkey.',
       },
       { status: 400 },
     )

@@ -21,7 +21,7 @@ export async function POST(request: Request) {
         error:
           error instanceof Error
             ? error.message
-            : 'Unable to send the Monad USDC transfer.',
+            : 'Nao foi possivel enviar a transferencia de USDC na Monad.',
       },
       { status: 400 },
     )
