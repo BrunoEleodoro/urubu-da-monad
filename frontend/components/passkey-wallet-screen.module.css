@@ -100,17 +100,116 @@
   padding: 8px 0 20px;
 }
 
+.card {
+  display: grid;
+  gap: 14px;
+  width: min(100%, 480px);
+  padding: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.cardLabel {
+  color: rgba(242, 242, 247, 0.58);
+  font-family: var(--font-mono), monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.cardTitle {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+}
+
+.cardMeta {
+  color: rgba(242, 242, 247, 0.68);
+  font-size: 14px;
+}
+
+.field {
+  color: rgba(242, 242, 247, 0.7);
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.input {
+  width: 100%;
+  min-height: 54px;
+  padding: 0 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  background: rgba(8, 10, 18, 0.72);
+  color: #f2f2f7;
+  font-size: 16px;
+  outline: none;
+}
+
+.input:focus {
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+.primaryButton,
+.secondaryButton {
+  min-height: 52px;
+  border: 0;
+  border-radius: 18px;
+  font-family: var(--font-mono), monospace;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.primaryButton {
+  background: linear-gradient(135deg, #f59e0b, #fb923c);
+  color: #141414;
+}
+
+.secondaryButton {
+  background: rgba(255, 255, 255, 0.06);
+  color: #f2f2f7;
+}
+
+.primaryButton:disabled,
+.secondaryButton:disabled {
+  opacity: 0.56;
+  cursor: wait;
+}
+
+.helper {
+  margin: 0;
+  color: rgba(242, 242, 247, 0.62);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.errorBox,
 .emptyState {
   display: flex;
-  min-height: 320px;
+  min-height: 88px;
   align-items: center;
   justify-content: center;
-  padding: 24px;
+  padding: 20px 24px;
   border-radius: 24px;
   background: rgba(255, 255, 255, 0.03);
   color: rgba(242, 242, 247, 0.74);
   font-size: 15px;
   text-align: center;
+}
+
+.errorBox {
+  min-height: 0;
+  border: 1px solid rgba(255, 91, 91, 0.22);
+  background: rgba(255, 91, 91, 0.08);
+  color: #ffbeb7;
 }
 
 @media (max-width: 768px) {

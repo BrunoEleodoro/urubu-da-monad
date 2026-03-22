@@ -3,7 +3,6 @@ import { DM_Sans, JetBrains_Mono } from 'next/font/google'
 
 import { Providers } from '@/components/providers'
 import { APP_URL } from '@/lib/constants'
-import './account-kit.css'
 import './globals.css'
 
 const dmSans = DM_Sans({

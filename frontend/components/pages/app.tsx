@@ -5,7 +5,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useFrame } from '@/components/farcaster-provider'
 import { GameScreen, type WalletUiState } from '@/components/game-screen'
 import {
-  passkeyWalletEnabled,
   usePasskeyTradeTransfer,
   usePasskeyWallet,
 } from '@/components/passkey-wallet-provider'
@@ -28,55 +27,9 @@ import {
 
 type OverlayMode = RampMode | 'passkey'
 
-function shortenAddress(address?: string) {
+function shortenAddress(address?: string | null) {
   if (!address) return ''
   return `${address.slice(0, 6)}...${address.slice(-4)}`
-}
-
-interface BrowserWalletState {
-  any: boolean
-  rabby: boolean
-  metaMask: boolean
-}
-
-function detectBrowserWallets(): BrowserWalletState {
-  if (typeof window === 'undefined') {
-    return {
-      any: false,
-      rabby: false,
-      metaMask: false,
-    }
-  }
-
-  type ProviderFlags = {
-    isMetaMask?: boolean
-    isRabby?: boolean
-  }
-
-  type WindowWithEthereum = Window & {
-    ethereum?: ProviderFlags & {
-      providers?: ProviderFlags[]
-    }
-  }
-
-  const ethereum = (window as WindowWithEthereum).ethereum
-  const providers: ProviderFlags[] =
-    ethereum?.providers && ethereum.providers.length > 0
-      ? ethereum.providers
-      : ethereum
-        ? [ethereum]
-        : []
-
-  const rabby = providers.some((provider) => Boolean(provider.isRabby))
-  const metaMask = providers.some(
-    (provider) => Boolean(provider.isMetaMask) && !provider.isRabby,
-  )
-
-  return {
-    any: providers.length > 0,
-    rabby,
-    metaMask,
-  }
 }
 
 function getErrorMessage(error: unknown) {
@@ -86,11 +39,6 @@ function getErrorMessage(error: unknown) {
 export default function App() {
   const [overlayMode, setOverlayMode] = useState<OverlayMode | null>(null)
   const [walletError, setWalletError] = useState<string | null>(null)
-  const [browserWallets, setBrowserWallets] = useState<BrowserWalletState>({
-    any: false,
-    rabby: false,
-    metaMask: false,
-  })
   const { isEthProviderAvailable, isLoading, isSDKLoaded } = useFrame()
   const { address, chainId, connector, isConnected } = useAccount()
   const { connectAsync, connectors, isPending: isConnecting } = useConnect()
@@ -107,7 +55,7 @@ export default function App() {
   const activeAddress = isConnected
     ? address
     : passkeyConnected
-      ? passkeyWallet.address
+      ? (passkeyWallet.address as `0x${string}` | null) ?? undefined
       : undefined
   const onMonad = isConnected ? chainId === monadMainnet.id : passkeyConnected
 
@@ -121,82 +69,53 @@ export default function App() {
   })
 
   useEffect(() => {
-    const sync = () => setBrowserWallets(detectBrowserWallets())
-
-    sync()
-    const asyncInjectTimeout = window.setTimeout(sync, 400)
-
-    window.addEventListener('ethereum#initialized', sync, { once: true })
-
-    return () => {
-      window.clearTimeout(asyncInjectTimeout)
-      window.removeEventListener('ethereum#initialized', sync)
-    }
-  }, [])
-
-  useEffect(() => {
     if (overlayMode === 'passkey' && passkeyConnected) {
       setOverlayMode(null)
     }
   }, [overlayMode, passkeyConnected])
 
+  const openPasskeyWallet = useCallback(() => {
+    setWalletError(null)
+    setOverlayMode('passkey')
+  }, [])
+
   const connectWallet = useCallback(async () => {
     setWalletError(null)
 
-    const candidateIds = [
-      ...(isEthProviderAvailable ? ['farcaster'] : []),
-      ...(browserWallets.rabby ? ['rabby'] : []),
-      ...(browserWallets.metaMask ? ['metaMask'] : []),
-      ...(browserWallets.any ? ['injected'] : []),
-    ]
-
-    const orderedConnectors = candidateIds
-      .map((id) => connectors.find((candidateConnector) => candidateConnector.id === id))
-      .filter((candidateConnector): candidateConnector is (typeof connectors)[number] =>
-        Boolean(candidateConnector),
+    if (isEthProviderAvailable) {
+      const farcasterConnector = connectors.find(
+        (candidateConnector) => candidateConnector.id === 'farcaster',
       )
 
-    if (orderedConnectors.length === 0) {
-      if (canUsePasskey) {
-        setOverlayMode('passkey')
+      if (!farcasterConnector) {
+        setWalletError('Farcaster wallet connector unavailable.')
         return
       }
 
-      setWalletError('Open in Warpcast or use a browser wallet like Rabby')
-      return
-    }
-
-    let lastError: unknown = null
-
-    for (const selectedConnector of orderedConnectors) {
       try {
         await connectAsync({
-          connector: selectedConnector,
+          connector: farcasterConnector,
           chainId: monadMainnet.id,
         })
         return
       } catch (error) {
-        lastError = error
+        setWalletError(getErrorMessage(error))
+        return
       }
     }
 
-    setWalletError(getErrorMessage(lastError))
-  }, [
-    browserWallets.any,
-    browserWallets.metaMask,
-    browserWallets.rabby,
-    canUsePasskey,
-    connectAsync,
-    connectors,
-    isEthProviderAvailable,
-  ])
+    if (canUsePasskey) {
+      openPasskeyWallet()
+      return
+    }
+
+    setWalletError('Passkeys are not available in this browser.')
+  }, [canUsePasskey, connectAsync, connectors, isEthProviderAvailable, openPasskeyWallet])
 
   const switchToMonad = useCallback(async () => {
     setWalletError(null)
 
-    if (passkeyConnected) {
-      return
-    }
+    if (passkeyConnected) return
 
     try {
       await switchChainAsync({ chainId: monadMainnet.id })
@@ -207,7 +126,7 @@ export default function App() {
     }
   }, [passkeyConnected, switchChainAsync])
 
-  const disconnectWallet = useCallback(() => {
+  const disconnectWallet = useCallback(async () => {
     setWalletError(null)
 
     if (isConnected) {
@@ -215,10 +134,49 @@ export default function App() {
       return
     }
 
-    if (passkeyConnected) {
-      passkeyWallet.disconnect()
+    if (passkeyWallet.connected) {
+      try {
+        await passkeyWallet.disconnect()
+      } catch (error) {
+        setWalletError(getErrorMessage(error))
+      }
     }
-  }, [disconnect, isConnected, passkeyConnected, passkeyWallet])
+  }, [disconnect, isConnected, passkeyWallet])
+
+  const createPasskeyWallet = useCallback(
+    async (label?: string) => {
+      setWalletError(null)
+
+      try {
+        await passkeyWallet.registerWallet(label)
+        setOverlayMode(null)
+      } catch (error) {
+        setWalletError(getErrorMessage(error))
+      }
+    },
+    [passkeyWallet],
+  )
+
+  const unlockPasskeyWallet = useCallback(async () => {
+    setWalletError(null)
+
+    try {
+      await passkeyWallet.authenticate()
+      setOverlayMode(null)
+    } catch (error) {
+      setWalletError(getErrorMessage(error))
+    }
+  }, [passkeyWallet])
+
+  const disconnectPasskeyWallet = useCallback(async () => {
+    setWalletError(null)
+
+    try {
+      await passkeyWallet.disconnect()
+    } catch (error) {
+      setWalletError(getErrorMessage(error))
+    }
+  }, [passkeyWallet])
 
   const walletState = useMemo<WalletUiState>(() => {
     const isBusy =
@@ -226,7 +184,7 @@ export default function App() {
       isSwitchingChain ||
       passkeyWallet.isAuthenticating ||
       passkeyWallet.isDisconnecting
-    const hasWalletOption = isEthProviderAvailable || browserWallets.any || canUsePasskey
+    const hasWalletOption = isEthProviderAvailable || canUsePasskey
     const action = isConnected
       ? onMonad
         ? 'disconnect'
@@ -235,28 +193,22 @@ export default function App() {
         ? 'disconnect'
         : 'connect'
 
-    let status = 'Open in Warpcast or a browser wallet'
+    let status = 'Open in Warpcast or use a passkey wallet'
 
     if (walletError) {
       status = walletError
     } else if (isBusy) {
       status = 'Preparing your wallet...'
     } else if (passkeyConnected) {
-      status = 'Connected with passkey smart wallet'
+      status = 'Connected with passkey wallet'
     } else if (isConnected && onMonad) {
       status = `Connected with ${connector?.name ?? 'wallet'}`
     } else if (isConnected) {
       status = 'Switch to Monad Mainnet'
-    } else if (browserWallets.any && canUsePasskey) {
-      status = 'Connect a browser wallet or create a passkey wallet'
-    } else if (browserWallets.rabby) {
-      status = 'Connect your Rabby wallet'
-    } else if (browserWallets.metaMask) {
-      status = 'Connect your MetaMask wallet'
-    } else if (browserWallets.any) {
-      status = 'Connect your browser wallet'
+    } else if (canUsePasskey && passkeyWallet.hasWallet) {
+      status = 'Unlock your passkey wallet'
     } else if (canUsePasskey) {
-      status = 'Create a passkey smart wallet'
+      status = 'Create your passkey wallet'
     } else if (isEthProviderAvailable) {
       status = 'Connect your Farcaster wallet'
     } else if (isLoading) {
@@ -271,11 +223,13 @@ export default function App() {
       ? 'Connecting...'
       : walletConnected
         ? shortenAddress(activeAddress) || 'Wallet connected'
-        : !browserWallets.any && canUsePasskey
-          ? 'Passkey wallet'
+        : canUsePasskey
+          ? passkeyWallet.hasWallet
+            ? 'Unlock wallet'
+            : 'Create wallet'
           : hasWalletOption
             ? 'Connect wallet'
-            : 'Warpcast only'
+            : 'Unavailable'
 
     return {
       connected: walletConnected,
@@ -290,7 +244,7 @@ export default function App() {
         : '',
       usdcBalanceValue: usdcBalance ? Number(usdcBalance.formatted) : null,
       chainLabel: passkeyConnected
-        ? 'Passkey smart wallet on Monad Mainnet'
+        ? 'Passkey wallet on Monad Mainnet'
         : onMonad
           ? `${connector?.name ?? 'Wallet'} on Monad Mainnet`
           : chainId
@@ -300,9 +254,6 @@ export default function App() {
     }
   }, [
     activeAddress,
-    browserWallets.any,
-    browserWallets.metaMask,
-    browserWallets.rabby,
     canUsePasskey,
     chainId,
     connector?.name,
@@ -314,6 +265,8 @@ export default function App() {
     isSwitchingChain,
     onMonad,
     passkeyConnected,
+    passkeyWallet.connected,
+    passkeyWallet.hasWallet,
     passkeyWallet.isAuthenticating,
     passkeyWallet.isDisconnecting,
     usdcBalance,
@@ -354,10 +307,7 @@ export default function App() {
       abi: erc20Abi,
       functionName: 'transfer',
       chainId: monadMainnet.id,
-      args: [
-        monadTradeSimulationRecipient,
-        amount,
-      ],
+      args: [monadTradeSimulationRecipient, amount],
     })
 
     return {
@@ -377,8 +327,17 @@ export default function App() {
   if (overlayMode === 'passkey') {
     return (
       <PasskeyWalletView
-        configured={passkeyWalletEnabled}
+        addressLabel={shortenAddress(passkeyWallet.address)}
+        busy={passkeyWallet.isAuthenticating || passkeyWallet.isDisconnecting}
+        connected={passkeyWallet.connected}
+        enabled={passkeyWallet.enabled}
+        error={walletError}
+        hasWallet={passkeyWallet.hasWallet}
+        label={passkeyWallet.label}
         onBack={() => setOverlayMode(null)}
+        onCreateWallet={createPasskeyWallet}
+        onDisconnectWallet={disconnectPasskeyWallet}
+        onUnlockWallet={unlockPasskeyWallet}
       />
     )
   }
@@ -396,13 +355,15 @@ export default function App() {
   return (
     <GameScreen
       wallet={walletState}
-      showPasskeyWalletButton={!walletConnected && canUsePasskey && browserWallets.any}
+      showPasskeyWalletButton={false}
       onConnectWallet={connectWallet}
       onSwitchToMonad={switchToMonad}
-      onDisconnectWallet={disconnectWallet}
+      onDisconnectWallet={() => {
+        void disconnectWallet()
+      }}
       onOpenOffRamp={() => setOverlayMode('offRamp')}
       onOpenOnRamp={() => setOverlayMode('onRamp')}
-      onOpenPasskeyWallet={() => setOverlayMode('passkey')}
+      onOpenPasskeyWallet={openPasskeyWallet}
       onSimulateTrade={simulateTradeTransfer}
     />
   )

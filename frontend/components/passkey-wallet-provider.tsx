@@ -1,111 +1,18 @@
 'use client'
 
 import {
-  AlchemyAccountProvider,
-  createConfig,
-  type AlchemyAccountsConfigWithUI,
-  useAccount,
-  useLogout,
-  useSendUserOperation,
-  useSignerStatus,
-  useSmartAccountClient,
-} from '@account-kit/react'
-import { alchemy, monadMainnet as alchemyMonadMainnet } from '@account-kit/infra'
-import { encodeFunctionData, erc20Abi, type Address, type Hex } from 'viem'
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+} from 'react'
 
-import { APP_URL } from '@/lib/constants'
+import { Authentication, Registration } from 'webauthx/client'
+import type { Address, Hex } from 'viem'
 
-import { queryClient } from './wallet-provider'
+import { type PasskeyWalletSnapshot, passkeyWalletSnapshotSchema } from '@/lib/passkey-wallet'
 
-const alchemyApiKey = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY ?? ''
-
-export const passkeyWalletEnabled = Boolean(alchemyApiKey)
-
-const passkeyConfig: AlchemyAccountsConfigWithUI | null = passkeyWalletEnabled
-  ? createConfig(
-      {
-        transport: alchemy({
-          apiKey: alchemyApiKey,
-        }),
-        chain: alchemyMonadMainnet,
-        ssr: true,
-      },
-      {
-        uiMode: 'embedded',
-        illustrationStyle: 'linear',
-        auth: {
-          addPasskeyOnSignup: true,
-          hideSignInText: true,
-          sections: [
-            [{ type: 'passkey' }],
-            [
-              {
-                type: 'email',
-                buttonLabel: 'Continue with email',
-                placeholder: 'you@example.com',
-              },
-            ],
-          ],
-          header: (
-            <div>
-              <strong>Passkey smart wallet</strong>
-              <p style={{ margin: '8px 0 0', opacity: 0.8 }}>
-                Create a Monad smart wallet with passkey first, with email as a safe fallback.
-              </p>
-            </div>
-          ),
-        },
-        supportUrl: APP_URL,
-      },
-    )
-  : null
-
-export function PasskeyWalletProvider({
-  children,
-}: {
-  children: React.ReactNode
-}) {
-  if (!passkeyConfig) {
-    return <>{children}</>
-  }
-
-  return (
-    <AlchemyAccountProvider config={passkeyConfig} queryClient={queryClient}>
-      {children}
-    </AlchemyAccountProvider>
-  )
-}
-
-export function usePasskeyWallet() {
-  if (!passkeyWalletEnabled) {
-    return {
-      address: undefined as Address | undefined,
-      connected: false,
-      enabled: false,
-      isAuthenticating: false,
-      isDisconnecting: false,
-      disconnect: () => undefined,
-    }
-  }
-
-  const signerStatus = useSignerStatus()
-  const { address, isLoadingAccount } = useAccount({
-    type: 'LightAccount',
-  })
-  const { logout, isLoggingOut } = useLogout()
-
-  return {
-    address,
-    connected: signerStatus.isConnected && Boolean(address),
-    enabled: true,
-    isAuthenticating:
-      signerStatus.isAuthenticating ||
-      signerStatus.isInitializing ||
-      isLoadingAccount,
-    isDisconnecting: isLoggingOut,
-    disconnect: logout,
-  }
-}
+const PASSKEY_SESSION_ENDPOINT = '/api/passkeys/session'
 
 interface PasskeyTransferParams {
   amount: bigint
@@ -113,44 +20,219 @@ interface PasskeyTransferParams {
   tokenAddress: Address
 }
 
-export function usePasskeyTradeTransfer() {
-  if (!passkeyWalletEnabled) {
-    return {
-      isSending: false,
-      sendTransfer: async (_params: PasskeyTransferParams) => {
-        throw new Error('Passkey wallet is not configured.')
-      },
+interface PasskeyWalletContextValue extends PasskeyWalletSnapshot {
+  enabled: boolean
+  hasPlatformSupport: boolean
+  isAuthenticating: boolean
+  isDisconnecting: boolean
+  isReady: boolean
+  refresh: () => Promise<void>
+  registerWallet: (label?: string) => Promise<void>
+  authenticate: () => Promise<void>
+  disconnect: () => Promise<void>
+  sendTransfer: (params: PasskeyTransferParams) => Promise<Hex>
+}
+
+const fallbackSnapshot: PasskeyWalletSnapshot = {
+  address: null,
+  connected: false,
+  hasWallet: false,
+  label: null,
+}
+
+const PasskeyWalletContext = createContext<PasskeyWalletContextValue | null>(null)
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message) return error.message
+  return 'Passkey request failed.'
+}
+
+async function requestJson<T>(input: RequestInfo, init?: RequestInit) {
+  const response = await fetch(input, init)
+  const payload = (await response.json().catch(() => null)) as
+    | { error?: string }
+    | T
+    | null
+
+  if (!response.ok) {
+    throw new Error(
+      payload && typeof payload === 'object' && 'error' in payload && payload.error
+        ? payload.error
+        : `HTTP ${response.status}`,
+    )
+  }
+
+  return payload as T
+}
+
+export function PasskeyWalletProvider({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  const [snapshot, setSnapshot] = useState<PasskeyWalletSnapshot>(fallbackSnapshot)
+  const [isAuthenticating, setIsAuthenticating] = useState(false)
+  const [isDisconnecting, setIsDisconnecting] = useState(false)
+  const [isReady, setIsReady] = useState(false)
+  const [hasPlatformSupport, setHasPlatformSupport] = useState(false)
+
+  const refresh = async () => {
+    const nextSnapshot = passkeyWalletSnapshotSchema.parse(
+      await requestJson<PasskeyWalletSnapshot>(PASSKEY_SESSION_ENDPOINT),
+    )
+    setSnapshot(nextSnapshot)
+    setIsReady(true)
+  }
+
+  useEffect(() => {
+    setHasPlatformSupport(
+      typeof window !== 'undefined' && typeof window.PublicKeyCredential !== 'undefined',
+    )
+
+    void refresh().catch(() => {
+      setSnapshot(fallbackSnapshot)
+      setIsReady(true)
+    })
+  }, [])
+
+  const registerWallet = async (label?: string) => {
+    setIsAuthenticating(true)
+
+    try {
+      const { options } = await requestJson<{
+        options: unknown
+      }>('/api/passkeys/register/options', {
+        body: JSON.stringify({ label }),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        method: 'POST',
+      })
+
+      const credential = await Registration.create({ options: options as never })
+      const nextSnapshot = passkeyWalletSnapshotSchema.parse(
+        await requestJson<PasskeyWalletSnapshot>('/api/passkeys/register/verify', {
+          body: JSON.stringify({ credential }),
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          method: 'POST',
+        }),
+      )
+
+      setSnapshot(nextSnapshot)
+    } catch (error) {
+      throw new Error(getErrorMessage(error))
+    } finally {
+      setIsAuthenticating(false)
+      setIsReady(true)
     }
   }
 
-  const { client } = useSmartAccountClient({
-    type: 'LightAccount',
-  })
-  const { sendUserOperationAsync, isSendingUserOperation } = useSendUserOperation({
-    client,
-    waitForTxn: false,
-  })
+  const authenticate = async () => {
+    setIsAuthenticating(true)
 
-  return {
-    isSending: isSendingUserOperation,
-    sendTransfer: async ({
-      amount,
-      recipient,
-      tokenAddress,
-    }: PasskeyTransferParams) => {
-      const result = await sendUserOperationAsync({
-        uo: {
-          target: tokenAddress,
-          data: encodeFunctionData({
-            abi: erc20Abi,
-            functionName: 'transfer',
-            args: [recipient, amount],
-          }),
-          value: BigInt(0),
-        },
+    try {
+      const { options } = await requestJson<{
+        options: unknown
+      }>('/api/passkeys/auth/options', {
+        method: 'POST',
       })
 
-      return result.hash as Hex
-    },
+      const response = await Authentication.sign({ options: options as never })
+      const nextSnapshot = passkeyWalletSnapshotSchema.parse(
+        await requestJson<PasskeyWalletSnapshot>('/api/passkeys/auth/verify', {
+          body: JSON.stringify({ response }),
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          method: 'POST',
+        }),
+      )
+
+      setSnapshot(nextSnapshot)
+    } catch (error) {
+      throw new Error(getErrorMessage(error))
+    } finally {
+      setIsAuthenticating(false)
+      setIsReady(true)
+    }
+  }
+
+  const disconnect = async () => {
+    setIsDisconnecting(true)
+
+    try {
+      const nextSnapshot = passkeyWalletSnapshotSchema.parse(
+        await requestJson<PasskeyWalletSnapshot>('/api/passkeys/disconnect', {
+          method: 'POST',
+        }),
+      )
+      setSnapshot(nextSnapshot)
+    } catch (error) {
+      throw new Error(getErrorMessage(error))
+    } finally {
+      setIsDisconnecting(false)
+    }
+  }
+
+  const sendTransfer = async ({
+    amount,
+    recipient,
+    tokenAddress,
+  }: PasskeyTransferParams) => {
+    await authenticate()
+
+    const { hash } = await requestJson<{ hash: Hex }>('/api/passkeys/transfer', {
+      body: JSON.stringify({
+        amount: amount.toString(),
+        recipient,
+        tokenAddress,
+      }),
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      method: 'POST',
+    })
+
+    return hash
+  }
+
+  const value: PasskeyWalletContextValue = {
+    ...snapshot,
+    enabled: hasPlatformSupport,
+    hasPlatformSupport,
+    isAuthenticating,
+    isDisconnecting,
+    isReady,
+    authenticate,
+    disconnect,
+    refresh,
+    registerWallet,
+    sendTransfer,
+  }
+
+  return (
+    <PasskeyWalletContext.Provider value={value}>
+      {children}
+    </PasskeyWalletContext.Provider>
+  )
+}
+
+export function usePasskeyWallet() {
+  const context = useContext(PasskeyWalletContext)
+  if (!context) {
+    throw new Error('PasskeyWalletProvider is missing.')
+  }
+
+  return context
+}
+
+export function usePasskeyTradeTransfer() {
+  const context = usePasskeyWallet()
+
+  return {
+    isSending: context.isAuthenticating,
+    sendTransfer: context.sendTransfer,
   }
 }
