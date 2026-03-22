@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { useFrame } from '@/components/farcaster-provider'
 import {
   type ActivePositionUiState,
   GameScreen,
@@ -12,11 +11,7 @@ import {
   type WalletUiState,
 } from '@/components/game-screen'
 import { OrdaRampView, type RampMode } from '@/components/orda-ramp-sheet'
-import {
-  getInjectedProviderCandidates,
-  hasPreferredInjectedProvider,
-  setPreferredInjectedProvider,
-} from '@/components/wallet-provider'
+import { hasInjectedProvider } from '@/components/wallet-provider'
 import { monadMainnet, monadUsdc } from '@/lib/chains'
 import {
   binaryAbi,
@@ -33,7 +28,6 @@ import {
   parseUnits,
 } from 'viem'
 import {
-  type Connector,
   useAccount,
   useBalance,
   useConnect,
@@ -61,10 +55,6 @@ function getErrorMessage(error: unknown) {
     'message' in error &&
     typeof error.message === 'string'
   ) {
-    if (error.message.includes('wallet must has at least one account')) {
-      return 'Desbloqueie sua carteira e habilite pelo menos uma conta antes de conectar.'
-    }
-
     return error.message
   }
 
@@ -73,11 +63,14 @@ function getErrorMessage(error: unknown) {
     : 'Falha ao conectar a carteira.'
 }
 
-function shouldTryNextInjectedProvider(error: unknown) {
-  if (!error || typeof error !== 'object') return false
-  if (!('message' in error) || typeof error.message !== 'string') return false
+function isEmbeddedContext() {
+  if (typeof window === 'undefined') return false
 
-  return error.message.includes('wallet must has at least one account')
+  try {
+    return window.self !== window.top
+  } catch {
+    return true
+  }
 }
 
 function formatUsdcAmount(rawValue: bigint, digits = 2) {
@@ -199,7 +192,6 @@ export default function App() {
   const [recoveredForAddress, setRecoveredForAddress] = useState<string | null>(
     null,
   )
-  const { isEthProviderAvailable, isLoading, isSDKLoaded } = useFrame()
   const { address, chainId, connector, isConnected } = useAccount()
   const { connectAsync, connectors, isPending: isConnecting } = useConnect()
   const { disconnect } = useDisconnect()
@@ -208,7 +200,7 @@ export default function App() {
   const publicClient = usePublicClient({ chainId: monadMainnet.id })
   const queryClient = useQueryClient()
 
-  const hasInjectedProvider = hasPreferredInjectedProvider()
+  const injectedProviderAvailable = hasInjectedProvider()
   const knownAddress = address
   const walletConnected = isConnected
   const activeAddress = address
@@ -334,62 +326,40 @@ export default function App() {
   const connectWallet = useCallback(async () => {
     setWalletError(null)
 
+    if (isEmbeddedContext()) {
+      const nextWindow = window.open(
+        window.location.href,
+        '_blank',
+        'noopener,noreferrer',
+      )
+
+      setWalletError(
+        nextWindow
+          ? 'Carteiras de extensao precisam abrir fora do embed. Abrimos esta pagina em uma nova aba.'
+          : 'Carteiras de extensao precisam abrir fora do embed. Abra esta pagina em uma nova aba do navegador.',
+      )
+      return
+    }
+
     const injectedConnector = connectors.find(
       (candidateConnector) => candidateConnector.id === 'injected',
     )
-    const farcasterConnector = connectors.find(
-      (candidateConnector) => candidateConnector.id === 'farcaster',
-    )
 
-    const connectWith = async (nextConnector: Connector) => {
-      await connectAsync({
-        connector: nextConnector,
-      })
-    }
-
-    if (hasInjectedProvider && injectedConnector) {
-      const injectedProviders = getInjectedProviderCandidates()
-      let lastError: unknown = null
-
-      for (const provider of injectedProviders) {
-        try {
-          setPreferredInjectedProvider(provider)
-          await connectWith(injectedConnector)
-          return
-        } catch (error) {
-          lastError = error
-
-          if (!shouldTryNextInjectedProvider(error)) {
-            setWalletError(getErrorMessage(error))
-            return
-          }
-        }
-      }
-
-      setPreferredInjectedProvider(null)
-
-      if (lastError) {
-        setWalletError(getErrorMessage(lastError))
-        return
-      }
-
+    if (!injectedProviderAvailable || !injectedConnector) {
       setWalletError(
         'Nenhuma carteira injetada foi encontrada neste navegador.',
       )
       return
     }
 
-    if (isEthProviderAvailable && farcasterConnector) {
-      try {
-        await connectWith(farcasterConnector)
-      } catch (error) {
-        setWalletError(getErrorMessage(error))
-      }
-      return
+    try {
+      await connectAsync({
+        connector: injectedConnector,
+      })
+    } catch (error) {
+      setWalletError(getErrorMessage(error))
     }
-
-    setWalletError('Nenhuma carteira injetada foi encontrada neste navegador.')
-  }, [connectAsync, connectors, hasInjectedProvider, isEthProviderAvailable])
+  }, [connectAsync, connectors, injectedProviderAvailable])
 
   const switchToMonad = useCallback(async () => {
     setWalletError(null)
@@ -514,14 +484,14 @@ export default function App() {
 
   const walletState = useMemo<WalletUiState>(() => {
     const isBusy = isConnecting || isSwitchingChain
-    const hasWalletOption = hasInjectedProvider || isEthProviderAvailable
+    const hasWalletOption = injectedProviderAvailable
     const action = isConnected
       ? onMonad
         ? 'disconnect'
         : 'switch-chain'
       : 'connect'
 
-    let status = 'Use uma carteira injetada ou abra no Warpcast'
+    let status = 'Use uma carteira injetada no navegador'
 
     if (walletError) {
       status = walletError
@@ -531,14 +501,12 @@ export default function App() {
       status = `Conectado com ${connector?.name ?? 'carteira'}`
     } else if (isConnected) {
       status = 'Troque para a Monad Mainnet'
-    } else if (hasInjectedProvider) {
+    } else if (injectedProviderAvailable) {
       status = 'Conecte sua carteira injetada'
-    } else if (isEthProviderAvailable) {
-      status = 'Conecte sua carteira do Farcaster'
-    } else if (isLoading) {
-      status = 'Carregando cliente do Farcaster...'
-    } else if (isSDKLoaded || hasWalletOption) {
+    } else if (hasWalletOption) {
       status = 'Conecte sua carteira'
+    } else {
+      status = 'Nenhuma carteira injetada encontrada neste navegador'
     }
 
     const buttonLabel = isBusy
@@ -572,12 +540,9 @@ export default function App() {
     activeAddress,
     chainId,
     connector?.name,
-    hasInjectedProvider,
+    injectedProviderAvailable,
     isConnected,
     isConnecting,
-    isEthProviderAvailable,
-    isLoading,
-    isSDKLoaded,
     isSwitchingChain,
     knownAddress,
     onMonad,
