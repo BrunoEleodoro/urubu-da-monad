@@ -13,7 +13,9 @@ import {ConfigurationManager} from "../src/ConfigurationManager.sol";
 /// See .env.template for required environment variables.
 contract Deploy is Script {
     function run() external {
-        uint256 deployerPk = vm.deriveKey(vm.envString("MNEMONIC"), uint32(vm.envOr("MNEMONIC_INDEX", uint256(0))));
+        uint256 mnemonicIndex = vm.envOr("MNEMONIC_INDEX", uint256(0));
+        string memory mnemonic = vm.envString("MNEMONIC");
+        uint256 deployerPk = vm.deriveKey(mnemonic, uint32(mnemonicIndex));
         address deployer = vm.addr(deployerPk);
 
         address asset             = vm.envAddress("ASSET");
@@ -52,15 +54,21 @@ contract Deploy is Script {
         configManager.set(configManager.FEE_BPS(),             bytes32(vm.envUint("FEE_BPS")));
         configManager.set(configManager.DURATION(),            bytes32(vm.envUint("DURATION")));
 
-        // 6. Seed vault with initial deposit to mitigate inflation attack
-        if (seedDeposit > 0) {
+        // 6. Seed vault with initial deposit to mitigate inflation attack.
+        // Skipped when seedDeposit is 0 or the deployer lacks sufficient balance —
+        // LiquidityVault._decimalsOffset()=6 already prevents the inflation attack.
+        uint256 deployerBalance = IERC20(asset).balanceOf(deployer);
+        if (seedDeposit > 0 && deployerBalance >= seedDeposit) {
             IERC20(asset).approve(address(vault), seedDeposit);
             vault.deposit(seedDeposit, deployer);
+        } else if (seedDeposit > 0) {
+            console.log("Skipping seed deposit: deployer balance too low (has %d, needs %d)", deployerBalance, seedDeposit);
         }
 
         vm.stopBroadcast();
 
         console.log("\n=== Deployment Complete ===");
+        console.log("Deployer:             ", deployer);
         console.log("PythOracle:           ", address(oracle));
         console.log("LiquidityVault:       ", address(vault));
         console.log("Binary:               ", address(binary));
