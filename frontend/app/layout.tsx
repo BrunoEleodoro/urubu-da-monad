@@ -1,11 +1,19 @@
 import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
+import { DM_Sans, JetBrains_Mono } from 'next/font/google'
 
 import { Providers } from '@/components/providers'
 import { APP_URL } from '@/lib/constants'
 import './globals.css'
 
-const inter = Inter({ subsets: ['latin'] })
+const dmSans = DM_Sans({
+  subsets: ['latin'],
+  variable: '--font-sans',
+})
+
+const jetBrainsMono = JetBrains_Mono({
+  subsets: ['latin'],
+  variable: '--font-mono',
+})
 
 export const metadata: Metadata = {
   metadataBase: new URL(APP_URL),
@@ -56,7 +64,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={inter.className}>
+      <body className={`${dmSans.variable} ${jetBrainsMono.variable}`}>
         <Providers>{children}</Providers>
       </body>
     </html>

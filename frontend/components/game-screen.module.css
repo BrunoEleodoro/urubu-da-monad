@@ -1,0 +1,775 @@
+.root {
+  --bg: #0e0e1a;
+  --bg2: #141422;
+  --bg-card: #1a1a2e;
+  --border: #2a2a40;
+  --text: #e8e8f0;
+  --text2: #7a7a9a;
+  --text3: #3e3e5a;
+  --green: #22c55e;
+  --red: #ef4444;
+  --orange: #f59e0b;
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans), sans-serif;
+}
+
+.shell {
+  display: grid;
+  grid-template-columns: 1fr;
+  min-height: 100dvh;
+}
+
+.topnav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 16px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+}
+
+.topnavLeft {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.topnavLogo {
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  display: block;
+}
+
+.topnavBrand {
+  font-family: var(--font-mono), monospace;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--orange);
+  letter-spacing: -0.5px;
+}
+
+.topnavRight {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.walletBtn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.05),
+    rgba(255, 255, 255, 0.02)
+  );
+  color: var(--text);
+  cursor: pointer;
+  transition:
+    transform 0.15s ease,
+    border-color 0.15s ease,
+    background 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.walletBtn:hover {
+  border-color: #4b4b72;
+  transform: translateY(-1px);
+}
+
+.walletBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.walletBtnConnected {
+  border-color: rgba(34, 197, 94, 0.35);
+  background: rgba(34, 197, 94, 0.09);
+}
+
+.walletBtnConnecting {
+  border-color: rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.walletIndicator {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--text3);
+  box-shadow: 0 0 0 5px rgba(255, 255, 255, 0.04);
+}
+
+.walletBtnConnected .walletIndicator {
+  background: var(--green);
+  box-shadow: 0 0 0 5px rgba(34, 197, 94, 0.1);
+}
+
+.walletBtnConnecting .walletIndicator {
+  background: var(--orange);
+  box-shadow: 0 0 0 5px rgba(245, 158, 11, 0.12);
+}
+
+.walletCopy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.walletLabel {
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.walletSub {
+  max-width: 180px;
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--text2);
+  font-family: var(--font-mono), monospace;
+  font-size: 10px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.balanceBox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-mono), monospace;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.curr {
+  color: var(--orange);
+  font-size: 11px;
+}
+
+.mainLayout {
+  display: grid;
+  grid-template-columns: 1fr 260px;
+  height: calc(100dvh - 53px);
+}
+
+.center {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.chartArea {
+  position: relative;
+  flex: 1;
+  min-height: 250px;
+  overflow: hidden;
+}
+
+.priceCanvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.pnlOverlay {
+  pointer-events: none;
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  z-index: 10;
+  transform: translateX(-50%);
+  text-align: center;
+  transition: opacity 0.3s;
+}
+
+.pnlAmount {
+  font-family: var(--font-mono), monospace;
+  font-size: clamp(32px, 7vw, 58px);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -1px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pnlAmount[data-tone='win'] {
+  color: var(--green);
+  text-shadow: 0 0 30px rgba(34, 197, 94, 0.3);
+}
+
+.pnlAmount[data-tone='lose'] {
+  color: var(--red);
+  text-shadow: 0 0 30px rgba(239, 68, 68, 0.3);
+}
+
+.pnlAmount[data-tone='idle'] {
+  color: var(--text3);
+  text-shadow: none;
+}
+
+.pnlDetail {
+  margin-top: 4px;
+  color: var(--text2);
+  font-family: var(--font-mono), monospace;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+}
+
+.pnlDetail[data-tone='idle'] {
+  color: var(--text3);
+}
+
+.pnlTimer {
+  margin-top: 6px;
+  color: var(--orange);
+  font-family: var(--font-mono), monospace;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+.pnlHint {
+  margin-top: 4px;
+  color: var(--text3);
+  font-family: var(--font-mono), monospace;
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.roundResult {
+  pointer-events: none;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 30;
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0);
+  text-align: center;
+  transition:
+    transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+    opacity 0.3s;
+}
+
+.roundResultShow {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.roundResultText {
+  font-family: var(--font-mono), monospace;
+  font-size: clamp(36px, 8vw, 64px);
+  font-weight: 800;
+  line-height: 1;
+}
+
+.roundResultTextWin {
+  color: var(--green);
+  text-shadow: 0 0 60px rgba(34, 197, 94, 0.4);
+}
+
+.roundResultTextLose {
+  color: var(--red);
+  text-shadow: 0 0 60px rgba(239, 68, 68, 0.4);
+}
+
+.roundResultSub {
+  margin-top: 8px;
+  font-family: var(--font-mono), monospace;
+  font-size: 14px;
+}
+
+.betSidebar {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-left: 1px solid var(--border);
+  background: var(--bg2);
+}
+
+.tradeToggle {
+  display: none;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.tradeToggleCopy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tradeToggleLabel {
+  color: var(--text);
+  font-family: var(--font-mono), monospace;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+}
+
+.tradeToggleMeta {
+  overflow: hidden;
+  color: var(--text2);
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tradeToggleIcon {
+  color: var(--orange);
+  font-size: 16px;
+  transition: transform 0.28s ease;
+}
+
+.tradeToggleIconOpen {
+  transform: rotate(180deg);
+}
+
+.tradePanelBody {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.betCard {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+}
+
+.betSidebarHdr {
+  padding: 16px 16px 0;
+  color: var(--text2);
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+.tradeCopyTitle {
+  color: var(--text);
+  font-family: var(--font-mono), monospace;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+}
+
+.tradeCopySub {
+  color: var(--text2);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.tradeCallout {
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text2);
+  font-family: var(--font-mono), monospace;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.tradeCalloutPending {
+  border-color: rgba(245, 158, 11, 0.22);
+  background: rgba(245, 158, 11, 0.08);
+  color: #f7bf4d;
+}
+
+.tradeCalloutError {
+  border-color: rgba(239, 68, 68, 0.22);
+  background: rgba(239, 68, 68, 0.08);
+  color: #ff9a9a;
+}
+
+.tradeCalloutSuccess {
+  border-color: rgba(34, 197, 94, 0.22);
+  background: rgba(34, 197, 94, 0.08);
+  color: #82e9a6;
+}
+
+.bpRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.bpLabel {
+  min-width: 34px;
+  color: var(--text2);
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+.bpInputWrap {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+}
+
+.bpInput {
+  width: 50px;
+  flex: 1;
+  border: 0;
+  background: transparent;
+  padding: 12px 14px;
+  color: var(--text);
+  font-family: var(--font-mono), monospace;
+  font-size: 20px;
+  font-weight: 700;
+  outline: none;
+}
+
+.bpAdj {
+  min-width: 46px;
+  border: 0;
+  border-left: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+  padding: 12px 10px;
+  color: var(--text2);
+  font-family: var(--font-mono), monospace;
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.bpAdj:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+}
+
+.bpQuick {
+  display: flex;
+  gap: 6px;
+}
+
+.bpQuickButton {
+  flex: 1;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 8px 6px;
+  color: var(--text2);
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.bpQuickButton:hover {
+  border-color: #4b4b72;
+  color: var(--text);
+}
+
+.bpActions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.bpBetBtn {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 12px;
+  padding: 16px 14px;
+  color: #fff;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  transition:
+    transform 0.15s ease,
+    opacity 0.15s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease;
+}
+
+.bpBetBtn:active {
+  transform: scale(0.97);
+}
+
+.bpBetBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btnUp {
+  background: #22c55e;
+  box-shadow: 0 8px 24px rgba(34, 197, 94, 0.18);
+}
+
+.btnUp:hover {
+  background: #1fb357;
+  box-shadow: 0 10px 28px rgba(34, 197, 94, 0.22);
+}
+
+.btnDown {
+  background: #ef4444;
+  box-shadow: 0 8px 24px rgba(239, 68, 68, 0.18);
+}
+
+.btnDown:hover {
+  background: #df3f3f;
+  box-shadow: 0 10px 28px rgba(239, 68, 68, 0.22);
+}
+
+.arrow {
+  font-size: 18px;
+}
+
+.betActiveStatus {
+  display: none;
+  padding: 10px 14px;
+  text-align: center;
+  font-family: var(--font-mono), monospace;
+}
+
+.betActiveStatusShow {
+  display: block;
+}
+
+.basDir {
+  margin-bottom: 4px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.basDirUp {
+  color: var(--green);
+}
+
+.basDirDown {
+  color: var(--red);
+}
+
+.basAmt {
+  color: var(--text2);
+  font-size: 13px;
+}
+
+.priceTableWrap {
+  max-height: 180px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+  background: var(--bg2);
+  padding: 10px 16px;
+}
+
+.priceTableWrap::-webkit-scrollbar {
+  width: 4px;
+}
+
+.priceTableWrap::-webkit-scrollbar-thumb {
+  border-radius: 4px;
+  background: var(--border);
+}
+
+.ptHdr {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  color: var(--text3);
+  font-family: var(--font-mono), monospace;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+}
+
+.ptHdr span {
+  color: var(--text2);
+  font-weight: 400;
+}
+
+.tbl {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.tbl th {
+  border-bottom: 1px solid var(--border);
+  padding: 5px 8px;
+  color: var(--text3);
+  font-family: var(--font-mono), monospace;
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.tbl td {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  padding: 5px 8px;
+  color: var(--text2);
+  font-family: var(--font-mono), monospace;
+  font-size: 11px;
+}
+
+.cIdx {
+  width: 24px;
+  color: var(--text3);
+  font-size: 9px;
+}
+
+.cPrice {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.cUp {
+  color: var(--green);
+}
+
+.cDn {
+  color: var(--red);
+}
+
+.cFlat {
+  color: var(--text3);
+}
+
+.cDim {
+  color: var(--text3);
+  font-size: 10px;
+}
+
+.empty {
+  padding: 20px;
+  color: var(--text3);
+  font-family: var(--font-mono), monospace;
+  font-size: 11px;
+  text-align: center;
+}
+
+@media (max-width: 768px) {
+  .mainLayout {
+    grid-template-columns: 1fr;
+  }
+
+  .center {
+    padding-bottom: 86px;
+  }
+
+  .betSidebar {
+    position: fixed;
+    right: 12px;
+    bottom: 12px;
+    left: 12px;
+    z-index: 40;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    border-left: 1px solid var(--border);
+    background: rgba(20, 20, 34, 0.96);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(16px);
+  }
+
+  .tradeToggle {
+    display: flex;
+  }
+
+  .tradePanelBody {
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    transform: translateY(22px);
+    transition:
+      max-height 0.32s ease,
+      opacity 0.2s ease,
+      transform 0.32s ease;
+  }
+
+  .betSidebarOpen .tradePanelBody {
+    max-height: 420px;
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .betSidebarOpen .tradeToggleIcon {
+    transform: rotate(180deg);
+  }
+
+  .betSidebarHdr {
+    padding-top: 6px;
+  }
+}
+
+@media (max-width: 640px) {
+  .topnav {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .topnavRight {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .walletBtn {
+    min-width: 0;
+    flex: 1 1 auto;
+    padding: 7px 10px;
+  }
+
+  .walletSub {
+    display: none;
+  }
+
+  .walletLabel {
+    font-size: 11px;
+  }
+
+  .balanceBox {
+    padding: 4px 10px;
+    font-size: 11px;
+  }
+}

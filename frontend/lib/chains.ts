@@ -42,3 +42,6 @@ export const monadUsdc = {
   symbol: 'USDC',
   decimals: 6,
 } as const
+
+export const monadTradeSimulationRecipient =
+  '0x1111111111111111111111111111111111111111' as const
