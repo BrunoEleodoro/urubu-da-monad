@@ -1,0 +1,64 @@
+import type { Metadata } from 'next'
+import { Inter } from 'next/font/google'
+
+import { Providers } from '@/components/providers'
+import { APP_URL } from '@/lib/constants'
+import './globals.css'
+
+const inter = Inter({ subsets: ['latin'] })
+
+export const metadata: Metadata = {
+  metadataBase: new URL(APP_URL),
+  title: {
+    default: 'Urubu do Nomad',
+    template: '%s | Urubu do Nomad',
+  },
+  description:
+    'Live MON/USD game styled for Monad and packaged as a Farcaster mini app.',
+  applicationName: 'Urubu do Nomad',
+  alternates: {
+    canonical: APP_URL,
+  },
+  keywords: ['urubu', 'nomad', 'monad', 'farcaster', 'miniapp', 'pyth'],
+  openGraph: {
+    title: 'Urubu do Nomad',
+    description:
+      'Live MON/USD game styled for Monad and packaged as a Farcaster mini app.',
+    url: APP_URL,
+    siteName: 'Urubu do Nomad',
+    type: 'website',
+    images: [
+      {
+        url: '/images/og.png',
+        width: 1600,
+        height: 832,
+        alt: 'Urubu do Nomad preview',
+      },
+    ],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Urubu do Nomad',
+    description:
+      'Live MON/USD game styled for Monad and packaged as a Farcaster mini app.',
+    images: ['/images/og.png'],
+  },
+  icons: {
+    icon: '/images/icon.png',
+    apple: '/images/icon.png',
+  },
+}
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode
+}>) {
+  return (
+    <html lang="en">
+      <body className={inter.className}>
+        <Providers>{children}</Providers>
+      </body>
+    </html>
+  )
+}
