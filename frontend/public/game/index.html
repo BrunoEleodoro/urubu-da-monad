@@ -463,8 +463,8 @@
       </span>
     </button>
     <div class="balance-box">
-      <span class="curr">USD</span>
-      <span id="balanceVal">$25,000.00</span>
+      <span class="curr" id="balanceAssetLabel">USDC</span>
+      <span id="balanceVal">--</span>
     </div>
   </div>
 </nav>
@@ -582,21 +582,20 @@ let roundStartPrice = null; // price at round start
 // Each active bet: { panel, amt, entryPrice, entryTime, direction: 'up' }
 let activeBets = [];       // max 2 (one per panel)
 let betMarkers = [];       // { t, price, amt } for chart drawing
-let balance = 25000;
+let demoBalance = 25000;
 let walletState = {
   connected: false,
   connecting: false,
   interactive: false,
+  action: 'connect',
   addressLabel: '',
-  balanceLabel: '',
+  usdcBalanceLabel: '',
   chainLabel: '',
   status: 'Use your Farcaster wallet',
 };
 
 function updateBalanceDisplay() {
-  document.getElementById('balanceVal').textContent = '$' + balance.toLocaleString('en-US', {
-    minimumFractionDigits: 2, maximumFractionDigits: 2,
-  });
+  // Demo balance stays local to the round engine and is not shown as wallet funds.
 }
 
 function syncTradeUi() {
@@ -631,26 +630,34 @@ function applyWalletState(nextState) {
   const walletBtn = document.getElementById('walletBtn');
   const walletLabel = document.getElementById('walletLabel');
   const walletSub = document.getElementById('walletSub');
+  const balanceVal = document.getElementById('balanceVal');
+  const balanceAssetLabel = document.getElementById('balanceAssetLabel');
 
   walletBtn.classList.toggle('connected', Boolean(walletState.connected));
   walletBtn.classList.toggle('connecting', Boolean(walletState.connecting));
   walletBtn.disabled = !walletState.interactive && !walletState.connected;
+  balanceAssetLabel.textContent = 'USDC';
 
   if (walletState.connecting) {
     walletLabel.textContent = 'Connecting...';
     walletSub.textContent = 'Approve in Warpcast';
+    balanceVal.textContent = '...';
     return;
   }
 
   if (walletState.connected) {
     walletLabel.textContent = walletState.addressLabel || 'Wallet connected';
     walletSub.textContent =
-      walletState.balanceLabel || walletState.chainLabel || 'Tap to disconnect';
+      walletState.usdcBalanceLabel || walletState.chainLabel || 'Tap to disconnect';
+    balanceVal.textContent =
+      walletState.usdcBalanceLabel ||
+      (walletState.action === 'switch-chain' ? 'Switch chain' : '0.00 USDC');
     return;
   }
 
   walletLabel.textContent = walletState.interactive ? 'Connect wallet' : 'Warpcast only';
   walletSub.textContent = walletState.status || 'Use your Farcaster wallet';
+  balanceVal.textContent = '--';
 }
 
 function requestWalletState() {
@@ -661,7 +668,11 @@ function requestWalletState() {
 function toggleWalletConnection() {
   if (!walletState.interactive && !walletState.connected) return;
 
-  const type = walletState.connected ? 'wallet:disconnect' : 'wallet:connect';
+  const type = walletState.action === 'disconnect'
+    ? 'wallet:disconnect'
+    : walletState.action === 'switch-chain'
+      ? 'wallet:switch-chain'
+      : 'wallet:connect';
   window.parent.postMessage({ type }, window.location.origin);
 }
 
@@ -705,7 +716,7 @@ function endRound() {
     // Leverage: 10x the percentage change applied to bet amount
     const pnl = bet.amt * pctChange * dirMult * 10;
     totalPnl += pnl;
-    balance += bet.amt + pnl; // return stake + pnl
+    demoBalance += bet.amt + pnl; // return stake + pnl
   }
 
   // Show round result if had active bets
@@ -1288,11 +1299,11 @@ function placeBet(direction) {
 
   const amt = Math.min(MAX_BET, parseFloat(document.getElementById('betAmt').value) || 0.5);
 
-  if (amt > balance) return;
+  if (amt > demoBalance) return;
 
   const entryPrice = currentDisplayPrice(performance.now());
 
-  balance -= amt;
+  demoBalance -= amt;
   updateBalanceDisplay();
 
   activeBets.push({

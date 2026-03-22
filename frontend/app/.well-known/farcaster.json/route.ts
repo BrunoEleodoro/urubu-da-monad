@@ -30,6 +30,7 @@ export async function GET() {
     buttonTitle: 'Abrir jogo',
     primaryCategory: 'games',
     tags: ['monad', 'pyth', 'oracle', 'trading', 'games'],
+    requiredChains: ['eip155:143'],
     screenshotUrls: [],
     canonicalDomain: new URL(APP_URL).hostname,
   }

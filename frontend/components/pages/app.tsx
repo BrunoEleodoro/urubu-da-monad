@@ -2,9 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { monadMainnet, monadUsdc } from '@/lib/chains'
 import { useFrame } from '@/components/farcaster-provider'
-import { useAccount, useBalance, useConnect, useDisconnect } from 'wagmi'
-import { monadTestnet } from 'wagmi/chains'
+import {
+  useAccount,
+  useBalance,
+  useConnect,
+  useDisconnect,
+  useSwitchChain,
+} from 'wagmi'
 
 const GAME_SRC = '/game/index.html'
 
@@ -20,24 +26,28 @@ export default function Home() {
   const { address, chainId, isConnected } = useAccount()
   const { connectAsync, connectors, isPending: isConnecting } = useConnect()
   const { disconnect } = useDisconnect()
-  const { data: walletBalance } = useBalance({
+  const { switchChainAsync, isPending: isSwitchingChain } = useSwitchChain()
+  const { data: usdcBalance } = useBalance({
     address,
-    chainId,
+    token: monadUsdc.address,
+    chainId: monadMainnet.id,
     query: {
       enabled: Boolean(address && isConnected),
     },
   })
 
   const walletState = useMemo(() => {
-    const onMonad = chainId === monadTestnet.id
+    const onMonad = chainId === monadMainnet.id
+    const isBusy = isConnecting || isSwitchingChain
+    const action = isConnected ? (onMonad ? 'disconnect' : 'switch-chain') : 'connect'
     const status = walletError
       ? walletError
-      : isConnecting
+      : isBusy
         ? 'Connecting wallet...'
-        : isConnected && onMonad
-          ? 'Connected to Monad Testnet'
-          : isConnected
-            ? `Connected on chain ${chainId}`
+      : isConnected && onMonad
+          ? 'Connected to Monad Mainnet'
+        : isConnected
+            ? 'Switch to Monad Mainnet'
             : isEthProviderAvailable
               ? 'Connect your Farcaster wallet'
               : isLoading
@@ -49,14 +59,15 @@ export default function Home() {
     return {
       type: 'wallet:update',
       connected: isConnected,
-      connecting: isConnecting,
+      connecting: isBusy,
       interactive: isConnected || isEthProviderAvailable,
+      action,
       address: address ?? '',
       addressLabel: shortenAddress(address),
-      balanceLabel: walletBalance
-        ? `${Number(walletBalance.formatted).toFixed(4)} ${walletBalance.symbol}`
+      usdcBalanceLabel: usdcBalance
+        ? `${Number(usdcBalance.formatted).toFixed(2)} ${usdcBalance.symbol}`
         : '',
-      chainLabel: onMonad ? 'Monad Testnet' : chainId ? `Chain ${chainId}` : '',
+      chainLabel: onMonad ? 'Monad Mainnet' : chainId ? `Chain ${chainId}` : '',
       status,
     }
   }, [
@@ -64,10 +75,11 @@ export default function Home() {
     chainId,
     isConnected,
     isConnecting,
+    isSwitchingChain,
     isEthProviderAvailable,
     isLoading,
     isSDKLoaded,
-    walletBalance,
+    usdcBalance,
     walletError,
   ])
 
@@ -95,7 +107,7 @@ export default function Home() {
     try {
       await connectAsync({
         connector: farcasterConnector,
-        chainId: monadTestnet.id,
+        chainId: monadMainnet.id,
       })
     } catch (error) {
       setWalletError(
@@ -103,6 +115,18 @@ export default function Home() {
       )
     }
   }, [connectAsync, connectors, isEthProviderAvailable])
+
+  const switchToMonad = useCallback(async () => {
+    setWalletError(null)
+
+    try {
+      await switchChainAsync({ chainId: monadMainnet.id })
+    } catch (error) {
+      setWalletError(
+        error instanceof Error ? error.message : 'Network switch failed',
+      )
+    }
+  }, [switchChainAsync])
 
   useEffect(() => {
     postWalletState()
@@ -123,6 +147,10 @@ export default function Home() {
         void connectWallet()
       }
 
+      if (payload.type === 'wallet:switch-chain') {
+        void switchToMonad()
+      }
+
       if (payload.type === 'wallet:disconnect') {
         setWalletError(null)
         disconnect()
@@ -131,7 +159,7 @@ export default function Home() {
 
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
-  }, [connectWallet, disconnect, postWalletState])
+  }, [connectWallet, disconnect, postWalletState, switchToMonad])
 
   return (
     <main

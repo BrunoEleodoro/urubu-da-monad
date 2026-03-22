@@ -1,12 +1,13 @@
 import { farcasterMiniApp as miniAppConnector } from '@farcaster/miniapp-wagmi-connector'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { http, WagmiProvider, createConfig } from 'wagmi'
-import { monadTestnet } from 'wagmi/chains'
+
+import { monadMainnet } from '@/lib/chains'
 
 export const config = createConfig({
-  chains: [monadTestnet],
+  chains: [monadMainnet],
   transports: {
-    [monadTestnet.id]: http(),
+    [monadMainnet.id]: http(monadMainnet.rpcUrls.default.http[0]),
   },
   connectors: [miniAppConnector()],
 })
