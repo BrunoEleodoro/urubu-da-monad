@@ -12,6 +12,11 @@ import {
   type WalletUiState,
 } from '@/components/game-screen'
 import { OrdaRampView, type RampMode } from '@/components/orda-ramp-sheet'
+import {
+  getInjectedProviderCandidates,
+  hasPreferredInjectedProvider,
+  setPreferredInjectedProvider,
+} from '@/components/wallet-provider'
 import { monadMainnet, monadUsdc } from '@/lib/chains'
 import {
   binaryAbi,
@@ -50,9 +55,29 @@ function shortenAddress(address?: string | null) {
 }
 
 function getErrorMessage(error: unknown) {
+  if (
+    error &&
+    typeof error === 'object' &&
+    'message' in error &&
+    typeof error.message === 'string'
+  ) {
+    if (error.message.includes('wallet must has at least one account')) {
+      return 'Desbloqueie sua carteira e habilite pelo menos uma conta antes de conectar.'
+    }
+
+    return error.message
+  }
+
   return error instanceof Error
     ? error.message
     : 'Falha ao conectar a carteira.'
+}
+
+function shouldTryNextInjectedProvider(error: unknown) {
+  if (!error || typeof error !== 'object') return false
+  if (!('message' in error) || typeof error.message !== 'string') return false
+
+  return error.message.includes('wallet must has at least one account')
 }
 
 function formatUsdcAmount(rawValue: bigint, digits = 2) {
@@ -75,12 +100,6 @@ function formatOraclePrice(rawValue: bigint) {
 
 function getPositionStorageKey(address: string) {
   return `${POSITION_STORAGE_PREFIX}:${address.toLowerCase()}`
-}
-
-function hasInjectedWalletProvider() {
-  if (typeof window === 'undefined') return false
-
-  return Boolean((window as Window & { ethereum?: unknown }).ethereum)
 }
 
 function calculateStakeFromGrossAmount(grossAmount: bigint, feeBps: bigint) {
@@ -189,7 +208,7 @@ export default function App() {
   const publicClient = usePublicClient({ chainId: monadMainnet.id })
   const queryClient = useQueryClient()
 
-  const hasInjectedProvider = hasInjectedWalletProvider()
+  const hasInjectedProvider = hasPreferredInjectedProvider()
   const knownAddress = address
   const walletConnected = isConnected
   const activeAddress = address
@@ -323,22 +342,49 @@ export default function App() {
     )
 
     const connectWith = async (nextConnector: Connector) => {
-      try {
-        await connectAsync({
-          connector: nextConnector,
-        })
-      } catch (error) {
-        setWalletError(getErrorMessage(error))
-      }
+      await connectAsync({
+        connector: nextConnector,
+      })
     }
 
     if (hasInjectedProvider && injectedConnector) {
-      await connectWith(injectedConnector)
+      const injectedProviders = getInjectedProviderCandidates()
+      let lastError: unknown = null
+
+      for (const provider of injectedProviders) {
+        try {
+          setPreferredInjectedProvider(provider)
+          await connectWith(injectedConnector)
+          return
+        } catch (error) {
+          lastError = error
+
+          if (!shouldTryNextInjectedProvider(error)) {
+            setWalletError(getErrorMessage(error))
+            return
+          }
+        }
+      }
+
+      setPreferredInjectedProvider(null)
+
+      if (lastError) {
+        setWalletError(getErrorMessage(lastError))
+        return
+      }
+
+      setWalletError(
+        'Nenhuma carteira injetada foi encontrada neste navegador.',
+      )
       return
     }
 
     if (isEthProviderAvailable && farcasterConnector) {
-      await connectWith(farcasterConnector)
+      try {
+        await connectWith(farcasterConnector)
+      } catch (error) {
+        setWalletError(getErrorMessage(error))
+      }
       return
     }
 
