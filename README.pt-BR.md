@@ -10,6 +10,9 @@ Mini app de trading para Farcaster + Monad.
 
 O projeto conecta um frontend em Next.js com contratos onchain de trading binario, passkeys para carteira embedded, rotas server-side para integrar protocolo e ramp BRL via Orda.
 
+Contrato em producao: `0x576238b24826Ffac2EeE798d6958A080c4806884`  
+Explorer: [MonadScan](https://monadscan.com/address/0x576238b24826Ffac2EeE798d6958A080c4806884)
+
 ## Stack do projeto
 
 | Camada | Tech stack | Uso no projeto |
