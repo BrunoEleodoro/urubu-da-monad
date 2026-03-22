@@ -97,6 +97,8 @@ interface GameScreenProps {
   onConnectWallet: () => Promise<void>
   onSwitchToMonad: () => Promise<void>
   onDisconnectWallet: () => void
+  onOpenOffRamp: () => void
+  onOpenOnRamp: () => void
   onSimulateTrade: (input: {
     direction: Direction
     amount: number
@@ -226,6 +228,8 @@ export function GameScreen({
   onConnectWallet,
   onSwitchToMonad,
   onDisconnectWallet,
+  onOpenOffRamp,
+  onOpenOnRamp,
   onSimulateTrade,
 }: GameScreenProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -1117,6 +1121,26 @@ export function GameScreen({
           </div>
 
           <div className={styles.topnavRight}>
+            <div className={styles.rampDock}>
+              <div className={styles.rampDockButtons}>
+                <button
+                  type="button"
+                  className={styles.rampBtn}
+                  onClick={onOpenOnRamp}
+                >
+                  On-ramp
+                </button>
+                <button
+                  type="button"
+                  className={cn(styles.rampBtn, styles.rampBtnSecondary)}
+                  onClick={onOpenOffRamp}
+                >
+                  Off-ramp
+                </button>
+              </div>
+              <span className={styles.rampMeta}>BRL and PIX via Orda</span>
+            </div>
+
             <button
               type="button"
               className={cn(

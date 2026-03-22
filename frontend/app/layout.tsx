@@ -52,7 +52,19 @@ export const metadata: Metadata = {
     images: ['/images/og.png'],
   },
   icons: {
-    icon: '/images/icon.png',
+    icon: [
+      {
+        rel: 'icon',
+        type: 'image/x-icon',
+        url: '/favicon.ico',
+      },
+      {
+        type: 'image/png',
+        sizes: '1024x1024',
+        url: '/images/icon.png',
+      },
+    ],
+    shortcut: '/favicon.ico',
     apple: '/images/icon.png',
   },
 }
@@ -64,6 +76,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      <head>
+        <link rel="stylesheet" href="/vendor/orda-widget.css" />
+      </head>
       <body className={`${dmSans.variable} ${jetBrainsMono.variable}`}>
         <Providers>{children}</Providers>
       </body>

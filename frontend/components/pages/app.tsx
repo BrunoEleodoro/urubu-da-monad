@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { useFrame } from '@/components/farcaster-provider'
 import { GameScreen, type WalletUiState } from '@/components/game-screen'
+import { OrdaRampSheet, type RampMode } from '@/components/orda-ramp-sheet'
 import {
   monadMainnet,
   monadTradeSimulationRecipient,
@@ -75,6 +76,7 @@ function getErrorMessage(error: unknown) {
 }
 
 export default function App() {
+  const [rampMode, setRampMode] = useState<RampMode | null>(null)
   const [walletError, setWalletError] = useState<string | null>(null)
   const [browserWallets, setBrowserWallets] = useState<BrowserWalletState>({
     any: false,
@@ -269,12 +271,22 @@ export default function App() {
   }, [address, chainId, isConnected, publicClient])
 
   return (
-    <GameScreen
-      wallet={walletState}
-      onConnectWallet={connectWallet}
-      onSwitchToMonad={switchToMonad}
-      onDisconnectWallet={disconnectWallet}
-      onSimulateTrade={simulateTradeTransfer}
-    />
+    <>
+      <GameScreen
+        wallet={walletState}
+        onConnectWallet={connectWallet}
+        onSwitchToMonad={switchToMonad}
+        onDisconnectWallet={disconnectWallet}
+        onOpenOffRamp={() => setRampMode('offRamp')}
+        onOpenOnRamp={() => setRampMode('onRamp')}
+        onSimulateTrade={simulateTradeTransfer}
+      />
+
+      <OrdaRampSheet
+        mode={rampMode}
+        open={rampMode !== null}
+        onClose={() => setRampMode(null)}
+      />
+    </>
   )
 }
