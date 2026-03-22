@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import {ERC4626} from "@openzeppelin/contracts/token/ERC20/extensions/ERC4626.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {ConfigurationManager} from "./ConfigurationManager.sol";
@@ -59,7 +60,15 @@ contract LiquidityVault is ERC4626 {
         return balance > lockedAssets ? balance - lockedAssets : 0;
     }
 
-    /// @dev Offset decimals to mitigate the ERC4626 inflation attack without a seed deposit.
+    /// @dev Share token decimals match the underlying asset.
+    function decimals() public view override returns (uint8) {
+        return IERC20Metadata(asset()).decimals();
+    }
+
+    /// @dev Offset used internally for virtual shares (inflation attack mitigation).
+    ///      Kept at 6 so the share price calculation uses 10^6 virtual backing shares,
+    ///      making a donation attack economically infeasible. Does not affect the
+    ///      displayed decimals since decimals() is overridden above.
     function _decimalsOffset() internal pure override returns (uint8) {
         return 6;
     }
