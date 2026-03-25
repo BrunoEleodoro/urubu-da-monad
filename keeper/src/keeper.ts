@@ -157,8 +157,8 @@ export class KeeperBot {
           functionName: "positions",
           args: [id],
         });
-        // positions() returns tuple: [trader, isLong, stake, entryPrice, liquidationPrice, openTime, settled]
-        const openTime = pos[5] as bigint;
+        // positions() returns tuple: [id, trader, isLong, stake, entryPrice, liquidationPrice, openTime, settled]
+        const openTime = pos[6] as bigint;
         this.openPositions.set(id, { ...entry, openTime });
       })
     );
@@ -202,7 +202,7 @@ export class KeeperBot {
             functionName: "positions",
             args: [id],
           });
-          const openTime = pos[5] as bigint;
+          const openTime = pos[6] as bigint;
           this.openPositions.set(id, {
             isLong,
             liquidationPrice,
@@ -291,8 +291,7 @@ export class KeeperBot {
     }) as bigint;
 
     const nowSec = BigInt(Math.floor(Date.now() / 1000));
-
-    const candidates: Array<{ id: bigint; isExpired: boolean }> = [];
+    const eligible: bigint[] = [];
 
     for (const [id, pos] of this.openPositions) {
       const isExpired = nowSec >= pos.openTime + duration;
@@ -301,90 +300,55 @@ export class KeeperBot {
         : currentPrice >= pos.liquidationPrice;
 
       if (isExpired || isLiquidatable) {
-        candidates.push({ id, isExpired });
+        eligible.push(id);
       }
     }
 
-    if (candidates.length === 0) return;
+    if (eligible.length === 0) return;
 
     console.log(
-      `[keeper] price=${currentPrice} | ${candidates.length} candidate(s): [${candidates.map((c) => `#${c.id}${c.isExpired ? "(exp)" : "(liq)"}`).join(", ")}]`
+      `[keeper] price=${currentPrice} | ${eligible.length} eligible position(s): [${eligible.map((id) => `#${id}`).join(", ")}]`
     );
 
-    for (const { id, isExpired } of candidates) {
-      await this.trySettle(id, currentPrice, isExpired);
-    }
+    await this.tryAutoSettle(eligible);
   }
 
-  // ─── Settle ──────────────────────────────────────────────────────────────
+  // ─── Auto-settle ─────────────────────────────────────────────────────────
 
-  private async trySettle(
-    id: bigint,
-    currentPrice: bigint,
-    isExpired: boolean
-  ): Promise<void> {
-    // For purely price-triggered settlements, confirm the payout is zero before
-    // spending gas — guards against a price bounce between the tick check and tx.
-    // For time-expired positions the payout may be positive; skip this check.
-    if (!isExpired) {
-      let payout: bigint;
-      try {
-        payout = await this.publicClient.readContract({
-          address: this.config.binaryAddress,
-          abi: BINARY_ABI,
-          functionName: "currentPayout",
-          args: [id],
-        }) as bigint;
-      } catch {
-        console.warn(`[keeper] currentPayout(${id}) reverted — skipping`);
-        return;
-      }
-
-      if (payout !== 0n) {
-        // Price recovered; no longer liquidatable.
-        return;
-      }
-    }
-
-    const reason = isExpired ? "expired" : "liquidated";
+  private async tryAutoSettle(eligibleIds: bigint[]): Promise<void> {
     console.log(
-      `[keeper] settling position #${id} (${reason}) at price=${currentPrice}...`
+      `[keeper] calling autoSettle() for ${eligibleIds.length} position(s)...`
     );
 
     try {
       const hash = await this.walletClient.writeContract({
         address: this.config.binaryAddress,
         abi: BINARY_ABI,
-        functionName: "settle",
-        args: [id],
+        functionName: "autoSettle",
       });
 
-      console.log(`[keeper] settle(${id}) submitted: ${hash}`);
+      console.log(`[keeper] autoSettle() submitted: ${hash}`);
 
       const receipt = await this.publicClient.waitForTransactionReceipt({ hash });
       if (receipt.status === "success") {
-        this.openPositions.delete(id);
+        for (const id of eligibleIds) {
+          this.openPositions.delete(id);
+        }
         console.log(
-          `[keeper] position #${id} settled ✓ (block ${receipt.blockNumber})`
+          `[keeper] autoSettle() ✓ — removed ${eligibleIds.length} position(s) (block ${receipt.blockNumber})`
         );
       } else {
-        console.error(`[keeper] settle(${id}) reverted on-chain`);
+        console.error("[keeper] autoSettle() reverted on-chain");
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
 
-      if (message.includes("already settled")) {
-        console.log(`[keeper] position #${id} already settled — removing`);
-        this.openPositions.delete(id);
-        return;
-      }
-
       if (message.includes("invalid oracle price")) {
-        console.warn(`[keeper] position #${id}: oracle unavailable — will retry`);
+        console.warn("[keeper] autoSettle(): oracle unavailable — will retry");
         return;
       }
 
-      console.error(`[keeper] settle(${id}) failed: ${message}`);
+      console.error(`[keeper] autoSettle() failed: ${message}`);
     }
   }
 }

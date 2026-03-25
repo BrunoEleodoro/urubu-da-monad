@@ -34,8 +34,9 @@ function nowSec(): bigint {
 function positionTuple(
   isLong: boolean,
   openTime: bigint
-): [Address, boolean, bigint, bigint, bigint, bigint, boolean] {
+): [bigint, Address, boolean, bigint, bigint, bigint, bigint, boolean] {
   return [
+    0n,   // id (uint88 as bigint)
     "0x3333333333333333333333333333333333333333",
     isLong,
     STAKE,
@@ -147,17 +148,10 @@ describe("KeeperBot — settle all positions after 120 seconds", () => {
     await bot.bootstrap();
     await bot.tick();
 
-    // Every position must have been settled exactly once.
-    expect(walletClient.writeContract).toHaveBeenCalledTimes(3);
-
+    // All eligible positions settled in one autoSettle() call.
+    expect(walletClient.writeContract).toHaveBeenCalledTimes(1);
     expect(walletClient.writeContract).toHaveBeenCalledWith(
-      expect.objectContaining({ functionName: "settle", args: [0n] })
-    );
-    expect(walletClient.writeContract).toHaveBeenCalledWith(
-      expect.objectContaining({ functionName: "settle", args: [1n] })
-    );
-    expect(walletClient.writeContract).toHaveBeenCalledWith(
-      expect.objectContaining({ functionName: "settle", args: [2n] })
+      expect.objectContaining({ functionName: "autoSettle" })
     );
   });
 
@@ -192,10 +186,10 @@ describe("KeeperBot — settle all positions after 120 seconds", () => {
     await bot.bootstrap();
     await bot.tick();
 
-    // Only positions #0 and #2 should be settled.
-    expect(walletClient.writeContract).toHaveBeenCalledTimes(2);
-    expect(walletClient.writeContract).not.toHaveBeenCalledWith(
-      expect.objectContaining({ args: [1n] })
+    // Only positions #0 and #2 were tracked → single autoSettle() covers both.
+    expect(walletClient.writeContract).toHaveBeenCalledTimes(1);
+    expect(walletClient.writeContract).toHaveBeenCalledWith(
+      expect.objectContaining({ functionName: "autoSettle" })
     );
   });
 

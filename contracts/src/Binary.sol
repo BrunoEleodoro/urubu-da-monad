@@ -40,9 +40,10 @@ contract Binary is Ownable, Pausable, ReentrancyGuard {
 
     LiquidityVault public immutable vault;
 
-    uint256 private _nextId;
+    uint88 private _nextId;
 
     struct Position {
+        uint88 id;                // self-referencing id; packs with trader in same slot
         address trader;
         bool isLong;
         uint256 stake;            // net of protocol fee
@@ -53,6 +54,8 @@ contract Binary is Ownable, Pausable, ReentrancyGuard {
     }
 
     mapping(uint256 => Position) public positions;
+
+    uint88[] private _openIds;
 
     // ─────────────────────────────────────────────────────────────────────────
     // Events
@@ -132,6 +135,8 @@ contract Binary is Ownable, Pausable, ReentrancyGuard {
         whenNotPaused
         returns (uint256 id)
     {
+        _autoSettle();
+
         require(amount > 0, "Binary: zero amount");
 
         IERC20 depositAsset = asset();
@@ -174,8 +179,9 @@ contract Binary is Ownable, Pausable, ReentrancyGuard {
         vault.lockLiquidity(lockedAmount);
 
         // Store position
-        id = _nextId++;
-        positions[id] = Position({
+        uint88 posId = _nextId++;
+        positions[posId] = Position({
+            id: posId,
             trader: msg.sender,
             isLong: isLong,
             stake: stake,
@@ -184,7 +190,9 @@ contract Binary is Ownable, Pausable, ReentrancyGuard {
             openTime: block.timestamp,
             settled: false
         });
+        _openIds.push(posId);
 
+        id = posId;
         emit PositionOpened(id, msg.sender, isLong, stake, lockedAmount, entryPrice, liqPrice);
     }
 
@@ -193,32 +201,19 @@ contract Binary is Ownable, Pausable, ReentrancyGuard {
     // ─────────────────────────────────────────────────────────────────────────
 
     /// @notice Settle a position at the current oracle price.
-    ///         Only the trader or the keeper (owner) may call this.
+    ///         Expired positions may be settled by anyone.
+    ///         Non-expired positions may only be settled by the trader or owner.
     /// @param id  Position identifier.
     function settle(uint256 id) external nonReentrant {
         Position storage pos = positions[id];
         require(pos.trader != address(0), "Binary: position does not exist");
         require(!pos.settled, "Binary: already settled");
-        require(msg.sender == pos.trader || msg.sender == owner(), "Binary: not authorized");
+        _settle(pos);
+    }
 
-        // Get exit price
-        uint256 exitPrice = oracle().getPrice();
-        require(exitPrice > 0, "Binary: invalid oracle price");
-
-        // Mark settled before any external call (reentrancy guard)
-        pos.settled = true;
-
-        uint256 lockedAmount = pos.stake * LEVERAGE;
-        uint256 payout = _calculatePayout(pos, exitPrice);
-
-        if (payout > 0) {
-            vault.releaseLiquidity(lockedAmount, pos.trader, payout);
-        } else {
-            // Liquidated: all funds remain in LiquidityVault as LP yield
-            vault.releaseLiquidity(lockedAmount, address(vault), 0);
-        }
-
-        emit PositionSettled(id, msg.sender, payout, exitPrice);
+    /// @notice Settle all eligible open positions in a single call.
+    function autoSettle() external nonReentrant {
+        _autoSettle();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -243,6 +238,55 @@ contract Binary is Ownable, Pausable, ReentrancyGuard {
     // ─────────────────────────────────────────────────────────────────────────
     // Internal
     // ─────────────────────────────────────────────────────────────────────────
+
+    function _autoSettle() private {
+        uint256 d = duration();
+        uint256 currentPrice = oracle().getPrice();
+        if (currentPrice == 0) return;
+
+        uint256 i = 0;
+        while (i < _openIds.length) {
+            Position storage pos = positions[_openIds[i]];
+            if (pos.settled) {
+                _openIds[i] = _openIds[_openIds.length - 1];
+                _openIds.pop();
+            } else {
+                bool expired = block.timestamp >= pos.openTime + d;
+                bool liquidated = _calculatePayout(pos, currentPrice) == 0;
+                if (expired || liquidated) {
+                    _settle(pos);
+                }
+                i++;
+            }
+        }
+    }
+
+    function _settle(Position storage pos) private {
+        if (pos.trader == address(0) || pos.settled) return;
+
+        uint256 exitPrice = oracle().getPrice();
+        if (exitPrice == 0) return;
+
+        uint256 payout = _calculatePayout(pos, exitPrice);
+        bool expired = block.timestamp >= pos.openTime + duration();
+
+        // Auth required only for non-expired, non-liquidated positions.
+        if (!expired && payout != 0) {
+            require(msg.sender == pos.trader || msg.sender == owner(), "Binary: not authorized");
+        }
+
+        pos.settled = true;
+
+        uint256 lockedAmount = pos.stake * LEVERAGE;
+        if (payout > 0) {
+            vault.releaseLiquidity(lockedAmount, pos.trader, payout);
+        } else {
+            // Liquidated: all funds remain in LiquidityVault as LP yield
+            vault.releaseLiquidity(lockedAmount, address(vault), 0);
+        }
+
+        emit PositionSettled(pos.id, msg.sender, payout, exitPrice);
+    }
 
     /// @dev Returns the payout a trader receives at `exitPrice`.
     ///      gain = stake * LEVERAGE * favorableMove / entryPrice

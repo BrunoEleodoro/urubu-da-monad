@@ -218,7 +218,7 @@ contract BinaryTest is Test {
         uint256 amount = 1000e6;
         uint256 id = _openLong(amount);
 
-        (,, uint256 stake,,,, ) = controller.positions(id);
+        (,,, uint256 stake,,,, ) = controller.positions(id);
         uint256 expectedFee = (amount * 200) / 10_000;
         assertEq(stake, amount - expectedFee);
 
@@ -233,7 +233,7 @@ contract BinaryTest is Test {
     function test_openPosition_stakeTransferredToVault() public {
         uint256 amount = 1000e6;
         uint256 id = _openLong(amount);
-        (,, uint256 stake,,,, ) = controller.positions(id);
+        (,,, uint256 stake,,,, ) = controller.positions(id);
         uint256 expectedFee = (amount * 200) / 10_000;
 
         assertEq(asset.balanceOf(address(vault)), INITIAL_LP + expectedFee + stake);
@@ -242,7 +242,7 @@ contract BinaryTest is Test {
     function test_openPosition_liquidityLocked() public {
         uint256 amount = 1000e6;
         uint256 id = _openLong(amount);
-        (,, uint256 stake,,,, ) = controller.positions(id);
+        (,,, uint256 stake,,,, ) = controller.positions(id);
 
         assertEq(vault.lockedAssets(), stake * LEVERAGE);
     }
@@ -310,7 +310,7 @@ contract BinaryTest is Test {
 
     function test_settle_longWins() public {
         uint256 id = _openLong(1000e6);
-        (,, uint256 stake,,,, ) = controller.positions(id);
+        (,,, uint256 stake,,,, ) = controller.positions(id);
 
         // Price up 5%: gain = stake * 100 * 100e6 / 2000e6 = stake * 5
         uint256 exitDelta = 100e6;
@@ -326,7 +326,7 @@ contract BinaryTest is Test {
 
     function test_settle_shortWins() public {
         uint256 id = _openShort(1000e6);
-        (,, uint256 stake,,,, ) = controller.positions(id);
+        (,,, uint256 stake,,,, ) = controller.positions(id);
 
         // Price down 5%: gain = stake * 100 * 100e6 / 2000e6 = stake * 5
         uint256 exitDelta = 100e6;
@@ -342,7 +342,7 @@ contract BinaryTest is Test {
 
     function test_settle_longLoses_partialLoss() public {
         uint256 id = _openLong(1000e6);
-        (,, uint256 stake,,,, ) = controller.positions(id);
+        (,,, uint256 stake,,,, ) = controller.positions(id);
 
         // Price down 0.25% (half of the 0.5% liquidation threshold): partial loss
         uint256 exitDelta = 5e6;
@@ -380,7 +380,7 @@ contract BinaryTest is Test {
 
     function test_settle_atEntryPrice_refundsStake() public {
         uint256 id = _openLong(1000e6);
-        (,, uint256 stake,,,, ) = controller.positions(id);
+        (,,, uint256 stake,,,, ) = controller.positions(id);
 
         oracle.setPrice(ENTRY_PRICE);
         uint256 traderBefore = asset.balanceOf(trader);
@@ -397,7 +397,7 @@ contract BinaryTest is Test {
 
         oracle.setPrice(ENTRY_PRICE + 1);
         controller.settle(id);
-        (,,,,,,bool settled) = controller.positions(id);
+        (,,,,,,,bool settled) = controller.positions(id);
         assertTrue(settled);
     }
 
