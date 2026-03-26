@@ -204,10 +204,10 @@ contract Binary is Ownable, Pausable, ReentrancyGuard {
     ///         Only callable once the position is expired or liquidated.
     /// @param id  Position identifier.
     function settle(uint256 id) external nonReentrant {
-        Position storage pos = positions[id];
-        require(pos.trader != address(0), "Binary: position does not exist");
-        require(!pos.settled, "Binary: already settled");
-        _settle(pos);
+        Position storage position = positions[id];
+        require(position.trader != address(0), "Binary: position does not exist");
+        require(!position.settled, "Binary: already settled");
+        _settle(position);
     }
 
     /// @notice Settle all eligible open positions in a single call.
@@ -222,11 +222,11 @@ contract Binary is Ownable, Pausable, ReentrancyGuard {
     /// @notice Simulates settlement at the current oracle price and returns what the trader would receive.
     /// @dev Returns 0 for non-existent or already-settled positions.
     function currentPayout(uint256 id) external view returns (uint256) {
-        Position storage pos = positions[id];
-        if (pos.trader == address(0) || pos.settled) return 0;
+        Position storage position = positions[id];
+        if (position.trader == address(0) || position.settled) return 0;
 
         uint256 currentPrice = oracle().getPrice();
-        return _calculatePayout(pos, currentPrice);
+        return _calculatePayout(position, currentPrice);
     }
 
     /// @notice Returns the stored liquidation price for an open position.
@@ -245,62 +245,62 @@ contract Binary is Ownable, Pausable, ReentrancyGuard {
 
         uint256 i = 0;
         while (i < _openIds.length) {
-            Position storage pos = positions[_openIds[i]];
-            if (pos.settled) {
+            Position storage position = positions[_openIds[i]];
+            if (position.settled) {
                 _openIds[i] = _openIds[_openIds.length - 1];
                 _openIds.pop();
             } else {
-                bool expired = block.timestamp >= pos.openTime + d;
-                bool liquidated = _calculatePayout(pos, currentPrice) == 0;
+                bool expired = block.timestamp >= position.openTime + d;
+                bool liquidated = _calculatePayout(position, currentPrice) == 0;
                 if (expired || liquidated) {
-                    _settle(pos);
+                    _settle(position);
                 }
                 i++;
             }
         }
     }
 
-    function _settle(Position storage pos) private {
-        if (pos.trader == address(0) || pos.settled) return;
+    function _settle(Position storage position) private {
+        if (position.trader == address(0) || position.settled) return;
 
         uint256 exitPrice = oracle().getPrice();
         if (exitPrice == 0) return;
 
-        uint256 payout = _calculatePayout(pos, exitPrice);
-        bool expired = block.timestamp >= pos.openTime + duration();
+        uint256 payout = _calculatePayout(position, exitPrice);
+        bool expired = block.timestamp >= position.openTime + duration();
 
         require(expired || payout == 0, "Binary: position not yet settleable");
 
-        pos.settled = true;
+        position.settled = true;
 
-        uint256 lockedAmount = pos.stake * LEVERAGE;
+        uint256 lockedAmount = position.stake * LEVERAGE;
         if (payout > 0) {
-            vault.releaseLiquidity(lockedAmount, pos.trader, payout);
+            vault.releaseLiquidity(lockedAmount, position.trader, payout);
         } else {
             // Liquidated: all funds remain in LiquidityVault as LP yield
             vault.releaseLiquidity(lockedAmount, address(vault), 0);
         }
 
-        emit PositionSettled(pos.id, msg.sender, payout, exitPrice);
+        emit PositionSettled(position.id, msg.sender, payout, exitPrice);
     }
 
     /// @dev Returns the payout a trader receives at `exitPrice`.
     ///      gain = stake * LEVERAGE * favorableMove / entryPrice
     ///      loss = stake * LEVERAGE * adverseMove  / entryPrice
     ///      payout = stake + gain - loss, clamped to 0 on full liquidation.
-    function _calculatePayout(Position storage pos, uint256 exitPrice) private view returns (uint256) {
-        uint256 favorable = pos.isLong
-            ? (exitPrice > pos.entryPrice ? exitPrice - pos.entryPrice : 0)
-            : (exitPrice < pos.entryPrice ? pos.entryPrice - exitPrice : 0);
+    function _calculatePayout(Position storage position, uint256 exitPrice) private view returns (uint256) {
+        uint256 favorable = position.isLong
+            ? (exitPrice > position.entryPrice ? exitPrice - position.entryPrice : 0)
+            : (exitPrice < position.entryPrice ? position.entryPrice - exitPrice : 0);
 
-        uint256 adverse = pos.isLong
-            ? (exitPrice < pos.entryPrice ? pos.entryPrice - exitPrice : 0)
-            : (exitPrice > pos.entryPrice ? exitPrice - pos.entryPrice : 0);
+        uint256 adverse = position.isLong
+            ? (exitPrice < position.entryPrice ? position.entryPrice - exitPrice : 0)
+            : (exitPrice > position.entryPrice ? exitPrice - position.entryPrice : 0);
 
-        uint256 gain = (pos.stake * LEVERAGE * favorable) / pos.entryPrice;
-        uint256 loss = (pos.stake * LEVERAGE * adverse) / pos.entryPrice;
+        uint256 gain = (position.stake * LEVERAGE * favorable) / position.entryPrice;
+        uint256 loss = (position.stake * LEVERAGE * adverse) / position.entryPrice;
 
-        return loss * 2 >= pos.stake ? 0 : pos.stake + gain - loss;
+        return loss * 2 >= position.stake ? 0 : position.stake + gain - loss;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
