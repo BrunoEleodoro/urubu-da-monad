@@ -303,8 +303,16 @@ contract BinaryTest is Test {
     function test_settle_alreadySettledReverts() public {
         uint256 id = _openLong(1000e6);
         oracle.setPrice(ENTRY_PRICE + 1);
+        vm.warp(block.timestamp + 120);
         controller.settle(id);
         vm.expectRevert("Binary: already settled");
+        controller.settle(id);
+    }
+
+    function test_settle_earlySettlementReverts() public {
+        uint256 id = _openLong(1000e6);
+        oracle.setPrice(ENTRY_PRICE + 100e6); // profitable, not liquidated
+        vm.expectRevert("Binary: position not yet settleable");
         controller.settle(id);
     }
 
@@ -318,6 +326,7 @@ contract BinaryTest is Test {
 
         uint256 expectedPayout = stake + (stake * LEVERAGE * exitDelta) / ENTRY_PRICE;
         uint256 traderBefore = asset.balanceOf(trader);
+        vm.warp(block.timestamp + 120);
         controller.settle(id);
 
         assertEq(asset.balanceOf(trader) - traderBefore, expectedPayout);
@@ -334,6 +343,7 @@ contract BinaryTest is Test {
 
         uint256 expectedPayout = stake + (stake * LEVERAGE * exitDelta) / ENTRY_PRICE;
         uint256 traderBefore = asset.balanceOf(trader);
+        vm.warp(block.timestamp + 120);
         controller.settle(id);
 
         assertEq(asset.balanceOf(trader) - traderBefore, expectedPayout);
@@ -352,6 +362,7 @@ contract BinaryTest is Test {
         uint256 expectedPayout = stake - loss;
 
         uint256 traderBefore = asset.balanceOf(trader);
+        vm.warp(block.timestamp + 120);
         controller.settle(id);
 
         assertEq(asset.balanceOf(trader) - traderBefore, expectedPayout);
@@ -383,6 +394,7 @@ contract BinaryTest is Test {
         (,,, uint256 stake,,,, ) = controller.positions(id);
 
         oracle.setPrice(ENTRY_PRICE);
+        vm.warp(block.timestamp + 120);
         uint256 traderBefore = asset.balanceOf(trader);
         controller.settle(id);
 
@@ -396,6 +408,7 @@ contract BinaryTest is Test {
         controller.pause();
 
         oracle.setPrice(ENTRY_PRICE + 1);
+        vm.warp(block.timestamp + 120);
         controller.settle(id);
         (,,,,,,,bool settled) = controller.positions(id);
         assertTrue(settled);
@@ -507,6 +520,7 @@ contract BinaryFuzzTest is Test {
 
         oracle.setPrice(ENTRY_PRICE + exitPriceDelta);
 
+        vm.warp(block.timestamp + 120);
         uint256 traderBefore = asset.balanceOf(trader);
         controller.settle(id);
         assertGt(asset.balanceOf(trader) - traderBefore, 0);

@@ -201,8 +201,7 @@ contract Binary is Ownable, Pausable, ReentrancyGuard {
     // ─────────────────────────────────────────────────────────────────────────
 
     /// @notice Settle a position at the current oracle price.
-    ///         Expired positions may be settled by anyone.
-    ///         Non-expired positions may only be settled by the trader or owner.
+    ///         Only callable once the position is expired or liquidated.
     /// @param id  Position identifier.
     function settle(uint256 id) external nonReentrant {
         Position storage pos = positions[id];
@@ -270,10 +269,7 @@ contract Binary is Ownable, Pausable, ReentrancyGuard {
         uint256 payout = _calculatePayout(pos, exitPrice);
         bool expired = block.timestamp >= pos.openTime + duration();
 
-        // Auth required only for non-expired, non-liquidated positions.
-        if (!expired && payout != 0) {
-            require(msg.sender == pos.trader || msg.sender == owner(), "Binary: not authorized");
-        }
+        require(expired || payout == 0, "Binary: position not yet settleable");
 
         pos.settled = true;
 
