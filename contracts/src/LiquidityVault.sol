@@ -14,12 +14,13 @@ import {ConfigParser} from "./libraries/ConfigParser.sol";
 /// @notice ERC4626 vault that acts as the sole counterparty to all binary option trades.
 ///         LP capital and trader stakes in-flight are held here.
 ///         Protocol fees and funds from losing trades accrue here, benefiting LP share-holders.
-///         The controller address is read at runtime from ConfigurationManager.
+///         Any address registered as a market in ConfigurationManager may call liquidity functions,
+///         allowing multiple BinaryMarket contracts to share a single vault.
 contract LiquidityVault is ERC4626 {
     using SafeERC20 for IERC20;
     using ConfigParser for bytes32;
 
-    /// @notice Configuration store that holds the controller address.
+    /// @notice Configuration store that holds the set of authorized market addresses.
     ConfigurationManager public immutable CONFIG_MANAGER;
 
     /// @notice Sum of all outstanding position payouts currently reserved.
@@ -28,15 +29,15 @@ contract LiquidityVault is ERC4626 {
     event LiquidityLocked(uint256 amount);
     event LiquidityReleased(uint256 locked, address indexed recipient, uint256 payout);
 
-    modifier onlyController() {
-        _onlyController();
+    modifier onlyMarket() {
+        _onlyMarket();
         _;
     }
 
-    function _onlyController() private view {
+    function _onlyMarket() private view {
         require(
-            msg.sender == CONFIG_MANAGER.getConfig(CONFIG_MANAGER.VAULT_CONTROLLER()).toAddress(),
-            "LiquidityVault: caller is not controller"
+            CONFIG_MANAGER.isMarket(msg.sender),
+            "LiquidityVault: caller is not a registered market"
         );
     }
 
@@ -83,7 +84,7 @@ contract LiquidityVault is ERC4626 {
 
     /// @notice Reserve `amount` of vault assets as a potential winner payout.
     /// @dev Reverts if free assets are insufficient.
-    function lockLiquidity(uint256 amount) external onlyController {
+    function lockLiquidity(uint256 amount) external onlyMarket {
         uint256 balance = IERC20(asset()).balanceOf(address(this));
         require(balance >= lockedAssets + amount, "LiquidityVault: insufficient free assets");
         lockedAssets += amount;
@@ -94,7 +95,7 @@ contract LiquidityVault is ERC4626 {
     /// @param locked     Amount that was originally locked (payout reserved at open).
     /// @param recipient  Address to send `payout` to; address(this) keeps funds in vault.
     /// @param payout     Actual token amount sent to recipient.
-    function releaseLiquidity(uint256 locked, address recipient, uint256 payout) external onlyController {
+    function releaseLiquidity(uint256 locked, address recipient, uint256 payout) external onlyMarket {
         require(lockedAssets >= locked, "LiquidityVault: locked underflow");
         lockedAssets -= locked;
 

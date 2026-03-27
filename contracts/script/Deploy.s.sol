@@ -6,7 +6,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {PythOracle} from "../src/oracles/PythOracle.sol";
 import {LiquidityVault} from "../src/LiquidityVault.sol";
-import {Binary} from "../src/Binary.sol";
+import {BinaryMarket} from "../src/BinaryMarket.sol";
 import {ConfigurationManager} from "../src/ConfigurationManager.sol";
 
 /// @notice Deployment script for the Binary Options Protocol.
@@ -15,6 +15,7 @@ contract Deploy is Script {
     function run() external {
         uint256 mnemonicIndex = vm.envOr("MNEMONIC_INDEX", uint256(0));
         string memory mnemonic = vm.envString("MNEMONIC");
+        // forge-lint: disable-next-line(unsafe-cheatcode,unsafe-typecast)
         uint256 deployerPk = vm.deriveKey(mnemonic, uint32(mnemonicIndex));
         address deployer = vm.addr(deployerPk);
 
@@ -42,17 +43,18 @@ contract Deploy is Script {
         LiquidityVault vault = new LiquidityVault(IERC20(asset), "Liquidity Vault", "lvUSDC", configManager);
         console.log("LiquidityVault:", address(vault));
 
-        // 4. Deploy Binary
-        Binary binary = new Binary(address(configManager), address(vault));
-        console.log("Binary:", address(binary));
+        // 4. Deploy BinaryMarket
+        BinaryMarket market = new BinaryMarket(address(configManager), address(vault));
+        console.log("BinaryMarket:", address(market));
 
-        // 5. Configure protocol parameters
-        configManager.set(configManager.VAULT_CONTROLLER(), bytes32(uint256(uint160(address(binary)))));
-        configManager.set(configManager.ORACLE(),              bytes32(uint256(uint160(address(oracle)))));
-        configManager.set(configManager.MAX_PAYOUT(),          bytes32(maxPayout));
-        configManager.set(configManager.MAX_UTILIZATION_BPS(), bytes32(maxUtilizationBps));
-        configManager.set(configManager.FEE_BPS(),             bytes32(vm.envUint("FEE_BPS")));
-        configManager.set(configManager.DURATION(),            bytes32(vm.envUint("DURATION")));
+        // 5. Register market and configure protocol parameters
+        configManager.addMarket(address(market));
+
+        configManager.set(address(market), configManager.ORACLE(),              bytes32(uint256(uint160(address(oracle)))));
+        configManager.set(address(market), configManager.MAX_PAYOUT(),          bytes32(maxPayout));
+        configManager.set(address(market), configManager.MAX_UTILIZATION_BPS(), bytes32(maxUtilizationBps));
+        configManager.set(address(market), configManager.FEE_BPS(),             bytes32(vm.envUint("FEE_BPS")));
+        configManager.set(address(market), configManager.DURATION(),            bytes32(vm.envUint("DURATION")));
 
         // 6. Seed vault with initial deposit to mitigate inflation attack.
         // Skipped when seedDeposit is 0 or the deployer lacks sufficient balance —
@@ -71,7 +73,7 @@ contract Deploy is Script {
         console.log("Deployer:             ", deployer);
         console.log("PythOracle:           ", address(oracle));
         console.log("LiquidityVault:       ", address(vault));
-        console.log("Binary:               ", address(binary));
+        console.log("BinaryMarket:         ", address(market));
         console.log("ConfigurationManager: ", address(configManager));
     }
 }

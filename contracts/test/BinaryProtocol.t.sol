@@ -6,7 +6,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 import {LiquidityVault} from "../src/LiquidityVault.sol";
-import {Binary} from "../src/Binary.sol";
+import {BinaryMarket} from "../src/BinaryMarket.sol";
 import {ConfigurationManager} from "../src/ConfigurationManager.sol";
 import {IOracle} from "../src/interfaces/IOracle.sol";
 
@@ -41,30 +41,30 @@ contract LiquidityVaultTest is Test {
     MockERC20 asset;
     LiquidityVault vault;
     ConfigurationManager configManager;
-    address controller = makeAddr("controller");
+    address market = makeAddr("market");
     address lp = makeAddr("lp");
 
     function setUp() public {
         asset = new MockERC20();
         configManager = new ConfigurationManager();
         vault = new LiquidityVault(IERC20(address(asset)), "Liquidity Vault", "lvUSDC", configManager);
-        configManager.set(configManager.VAULT_CONTROLLER(), bytes32(uint256(uint160(controller))));
+        configManager.addMarket(market);
     }
 
-    function test_controller_readFromConfigManager() public {
-        address other = makeAddr("other");
-        configManager.set(configManager.VAULT_CONTROLLER(), bytes32(uint256(uint160(other))));
+    function test_market_addedCanCallVault() public {
+        address extra = makeAddr("extra");
+        configManager.addMarket(extra);
 
         asset.mint(address(vault), 1000e6);
-        vm.prank(other);
-        vault.lockLiquidity(100e6); // succeeds with new controller
+        vm.prank(extra);
+        vault.lockLiquidity(100e6);
     }
 
     function test_totalAssets_excludesLocked() public {
         asset.mint(address(vault), 1000e6);
         assertEq(vault.totalAssets(), 1000e6);
 
-        vm.prank(controller);
+        vm.prank(market);
         vault.lockLiquidity(400e6);
 
         assertEq(vault.lockedAssets(), 400e6);
@@ -73,14 +73,14 @@ contract LiquidityVaultTest is Test {
 
     function test_lockLiquidity_revertsIfInsufficient() public {
         asset.mint(address(vault), 100e6);
-        vm.prank(controller);
+        vm.prank(market);
         vm.expectRevert("LiquidityVault: insufficient free assets");
         vault.lockLiquidity(101e6);
     }
 
-    function test_lockLiquidity_onlyController() public {
+    function test_lockLiquidity_onlyMarket() public {
         asset.mint(address(vault), 1000e6);
-        vm.expectRevert("LiquidityVault: caller is not controller");
+        vm.expectRevert("LiquidityVault: caller is not a registered market");
         vault.lockLiquidity(100e6);
     }
 
@@ -88,7 +88,7 @@ contract LiquidityVaultTest is Test {
         asset.mint(address(vault), 1000e6);
         address winner = makeAddr("winner");
 
-        vm.startPrank(controller);
+        vm.startPrank(market);
         vault.lockLiquidity(500e6);
         vault.releaseLiquidity(500e6, winner, 500e6);
         vm.stopPrank();
@@ -100,7 +100,7 @@ contract LiquidityVaultTest is Test {
     function test_releaseLiquidity_loserFundsStayInVault() public {
         asset.mint(address(vault), 1000e6);
 
-        vm.startPrank(controller);
+        vm.startPrank(market);
         vault.lockLiquidity(500e6);
         vault.releaseLiquidity(500e6, address(vault), 0);
         vm.stopPrank();
@@ -110,7 +110,7 @@ contract LiquidityVaultTest is Test {
     }
 
     function test_releaseLiquidity_underflowReverts() public {
-        vm.prank(controller);
+        vm.prank(market);
         vm.expectRevert("LiquidityVault: locked underflow");
         vault.releaseLiquidity(1, address(0), 0);
     }
@@ -141,17 +141,26 @@ contract LiquidityVaultTest is Test {
         uint256 assetsAfter = vault.convertToAssets(vault.balanceOf(lp));
         assertGt(assetsAfter, assetsBefore, "LP should benefit from fees accruing to vault");
     }
+
+    function test_removedMarket_rejected() public {
+        configManager.removeMarket(market);
+
+        asset.mint(address(vault), 1000e6);
+        vm.prank(market);
+        vm.expectRevert("LiquidityVault: caller is not a registered market");
+        vault.lockLiquidity(100e6);
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Binary unit tests
+// BinaryMarket unit tests
 // ─────────────────────────────────────────────────────────────────────────────
 
-contract BinaryTest is Test {
+contract BinaryMarketTest is Test {
     MockERC20 asset;
     LiquidityVault vault;
     MockOracle oracle;
-    Binary controller;
+    BinaryMarket controller;
     ConfigurationManager configManager;
 
     address trader = makeAddr("trader");
@@ -169,14 +178,14 @@ contract BinaryTest is Test {
 
         configManager = new ConfigurationManager();
         vault = new LiquidityVault(IERC20(address(asset)), "Liquidity Vault", "lvUSDC", configManager);
-        controller = new Binary(address(configManager), address(vault));
+        controller = new BinaryMarket(address(configManager), address(vault));
 
-        configManager.set(configManager.VAULT_CONTROLLER(), bytes32(uint256(uint160(address(controller)))));
-        configManager.set(configManager.ORACLE(), bytes32(uint256(uint160(address(oracle)))));
-        configManager.set(configManager.MAX_PAYOUT(), bytes32(uint256(10_000e6)));
-        configManager.set(configManager.MAX_UTILIZATION_BPS(), bytes32(uint256(8000)));
-        configManager.set(configManager.FEE_BPS(), bytes32(uint256(200)));
-        configManager.set(configManager.DURATION(), bytes32(uint256(120)));
+        configManager.addMarket(address(controller));
+        configManager.set(address(controller), configManager.ORACLE(),              bytes32(uint256(uint160(address(oracle)))));
+        configManager.set(address(controller), configManager.MAX_PAYOUT(),          bytes32(uint256(10_000e6)));
+        configManager.set(address(controller), configManager.MAX_UTILIZATION_BPS(), bytes32(uint256(8000)));
+        configManager.set(address(controller), configManager.FEE_BPS(),             bytes32(uint256(200)));
+        configManager.set(address(controller), configManager.DURATION(),            bytes32(uint256(120)));
 
         asset.mint(lp, INITIAL_LP);
         vm.startPrank(lp);
@@ -249,7 +258,7 @@ contract BinaryTest is Test {
 
     function test_openPosition_zeroAmountReverts() public {
         vm.prank(trader);
-        vm.expectRevert("Binary: zero amount");
+        vm.expectRevert("BinaryMarket: zero amount");
         controller.openPosition(true, 0);
     }
 
@@ -259,7 +268,7 @@ contract BinaryTest is Test {
         asset.mint(trader, overMax);
         vm.startPrank(trader);
         asset.approve(address(controller), overMax);
-        vm.expectRevert("Binary: stake exceeds max");
+        vm.expectRevert("BinaryMarket: stake exceeds max");
         controller.openPosition(true, overMax);
         vm.stopPrank();
     }
@@ -279,7 +288,7 @@ contract BinaryTest is Test {
         asset.mint(trader, 1000e6);
         vm.startPrank(trader);
         asset.approve(address(controller), 1000e6);
-        vm.expectRevert("Binary: invalid oracle price");
+        vm.expectRevert("BinaryMarket: invalid oracle price");
         controller.openPosition(true, 1000e6);
         vm.stopPrank();
     }
@@ -305,14 +314,14 @@ contract BinaryTest is Test {
         oracle.setPrice(ENTRY_PRICE + 1);
         vm.warp(block.timestamp + 120);
         controller.settle(id);
-        vm.expectRevert("Binary: already settled");
+        vm.expectRevert("BinaryMarket: already settled");
         controller.settle(id);
     }
 
     function test_settle_earlySettlementReverts() public {
         uint256 id = _openLong(1000e6);
         oracle.setPrice(ENTRY_PRICE + 100e6); // profitable, not liquidated
-        vm.expectRevert("Binary: position not yet settleable");
+        vm.expectRevert("BinaryMarket: position not yet settleable");
         controller.settle(id);
     }
 
@@ -415,21 +424,21 @@ contract BinaryTest is Test {
     }
 
     function test_settle_nonExistentReverts() public {
-        vm.expectRevert("Binary: position does not exist");
+        vm.expectRevert("BinaryMarket: position does not exist");
         controller.settle(999);
     }
 
     // ── admin ────────────────────────────────────────────────────────────────
 
     function test_admin_setMaxPayout() public {
-        configManager.set(configManager.MAX_PAYOUT(), bytes32(uint256(5000e6)));
+        configManager.set(address(controller), configManager.MAX_PAYOUT(), bytes32(uint256(5000e6)));
         assertEq(controller.maxPayout(), 5000e6);
     }
 
     function test_admin_setOracle() public {
         MockOracle newOracle = new MockOracle();
         newOracle.setPrice(3000e6);
-        configManager.set(configManager.ORACLE(), bytes32(uint256(uint160(address(newOracle)))));
+        configManager.set(address(controller), configManager.ORACLE(), bytes32(uint256(uint160(address(newOracle)))));
         assertEq(address(controller.oracle()), address(newOracle));
     }
 
@@ -437,7 +446,7 @@ contract BinaryTest is Test {
         bytes32 key = configManager.MAX_PAYOUT();
         vm.prank(trader);
         vm.expectRevert();
-        configManager.set(key, bytes32(uint256(1)));
+        configManager.set(address(controller), key, bytes32(uint256(1)));
     }
 
     // ── utilization cap ──────────────────────────────────────────────────────
@@ -456,9 +465,38 @@ contract BinaryTest is Test {
         asset.mint(trader, amount);
         vm.startPrank(trader);
         asset.approve(address(controller), amount);
-        vm.expectRevert("Binary: vault utilization exceeded");
+        vm.expectRevert("BinaryMarket: vault utilization exceeded");
         controller.openPosition(true, amount);
         vm.stopPrank();
+    }
+
+    // ── shared vault ──────────────────────────────────────────────────────────
+
+    function test_twoMarkets_shareVault() public {
+        BinaryMarket market2 = new BinaryMarket(address(configManager), address(vault));
+        configManager.addMarket(address(market2));
+        configManager.set(address(market2), configManager.ORACLE(),              bytes32(uint256(uint160(address(oracle)))));
+        configManager.set(address(market2), configManager.MAX_PAYOUT(),          bytes32(uint256(10_000e6)));
+        configManager.set(address(market2), configManager.MAX_UTILIZATION_BPS(), bytes32(uint256(8000)));
+        configManager.set(address(market2), configManager.FEE_BPS(),             bytes32(uint256(200)));
+        configManager.set(address(market2), configManager.DURATION(),            bytes32(uint256(120)));
+
+        uint256 amount = 1000e6;
+
+        // open on market1
+        uint256 id1 = _openLong(amount);
+        (,,, uint256 stake1,,,, ) = controller.positions(id1);
+
+        // open on market2
+        asset.mint(trader, amount);
+        vm.startPrank(trader);
+        asset.approve(address(market2), amount);
+        uint256 id2 = market2.openPosition(true, amount);
+        vm.stopPrank();
+        (,,, uint256 stake2,,,, ) = market2.positions(id2);
+
+        // both locks are reflected in the shared vault
+        assertEq(vault.lockedAssets(), (stake1 + stake2) * LEVERAGE);
     }
 }
 
@@ -466,11 +504,11 @@ contract BinaryTest is Test {
 // Fuzz tests
 // ─────────────────────────────────────────────────────────────────────────────
 
-contract BinaryFuzzTest is Test {
+contract BinaryMarketFuzzTest is Test {
     MockERC20 asset;
     LiquidityVault vault;
     MockOracle oracle;
-    Binary controller;
+    BinaryMarket controller;
     ConfigurationManager configManager;
 
     address trader = makeAddr("trader");
@@ -487,14 +525,14 @@ contract BinaryFuzzTest is Test {
 
         configManager = new ConfigurationManager();
         vault = new LiquidityVault(IERC20(address(asset)), "LV", "LV", configManager);
-        controller = new Binary(address(configManager), address(vault));
+        controller = new BinaryMarket(address(configManager), address(vault));
 
-        configManager.set(configManager.VAULT_CONTROLLER(), bytes32(uint256(uint160(address(controller)))));
-        configManager.set(configManager.ORACLE(), bytes32(uint256(uint160(address(oracle)))));
-        configManager.set(configManager.MAX_PAYOUT(), bytes32(uint256(100_000e6)));
-        configManager.set(configManager.MAX_UTILIZATION_BPS(), bytes32(uint256(8000)));
-        configManager.set(configManager.FEE_BPS(), bytes32(uint256(200)));
-        configManager.set(configManager.DURATION(), bytes32(uint256(120)));
+        configManager.addMarket(address(controller));
+        configManager.set(address(controller), configManager.ORACLE(),              bytes32(uint256(uint160(address(oracle)))));
+        configManager.set(address(controller), configManager.MAX_PAYOUT(),          bytes32(uint256(100_000e6)));
+        configManager.set(address(controller), configManager.MAX_UTILIZATION_BPS(), bytes32(uint256(8000)));
+        configManager.set(address(controller), configManager.FEE_BPS(),             bytes32(uint256(200)));
+        configManager.set(address(controller), configManager.DURATION(),            bytes32(uint256(120)));
 
         asset.mint(lp, INITIAL_LP);
         vm.startPrank(lp);

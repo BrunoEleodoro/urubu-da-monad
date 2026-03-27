@@ -15,7 +15,7 @@ export const binaryAbi = [
   },
   {
     type: "function",
-    name: "configManager",
+    name: "CONFIG_MANAGER",
     inputs: [],
     outputs: [{ name: "", type: "address" }],
     stateMutability: "view",
@@ -117,6 +117,13 @@ export const binaryAbi = [
   },
   {
     type: "function",
+    name: "autoSettle",
+    inputs: [],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
     name: "settle",
     inputs: [{ name: "id", type: "uint256" }],
     outputs: [],
@@ -131,7 +138,7 @@ export const binaryAbi = [
   },
   {
     type: "function",
-    name: "vault",
+    name: "VAULT",
     inputs: [],
     outputs: [{ name: "", type: "address" }],
     stateMutability: "view",

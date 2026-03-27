@@ -12,13 +12,14 @@ import {IOracle} from "./interfaces/IOracle.sol";
 import {ConfigurationManager} from "./ConfigurationManager.sol";
 import {ConfigParser} from "./libraries/ConfigParser.sol";
 
-/// @title Binary
-/// @notice Core logic for the leveraged trading protocol.
+/// @title BinaryMarket
+/// @notice Core logic for one binary options market.
 ///         Positions are 100x leveraged: a 1% adverse price move fully liquidates the position.
 ///         Protocol fees and liquidated funds flow directly into LiquidityVault,
 ///         accruing to LP share-holders.
-///         Runtime configuration is read from ConfigurationManager.
-contract Binary is Ownable, Pausable, ReentrancyGuard {
+///         Runtime configuration is read from ConfigurationManager, scoped to this market's ID.
+///         Multiple BinaryMarket contracts can share a single LiquidityVault and ConfigurationManager.
+contract BinaryMarket is Ownable, Pausable, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using ConfigParser for bytes32;
 
@@ -35,7 +36,7 @@ contract Binary is Ownable, Pausable, ReentrancyGuard {
     // State
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// @notice Configuration store from which oracle, maxPayout, and maxUtilizationBps are read.
+    /// @notice Configuration store from which per-market config is read.
     ConfigurationManager public immutable CONFIG_MANAGER;
 
     LiquidityVault public immutable VAULT;
@@ -86,8 +87,8 @@ contract Binary is Ownable, Pausable, ReentrancyGuard {
         address _configManager,
         address _vault
     ) Ownable(msg.sender) {
-        require(_configManager != address(0), "Binary: zero configManager");
-        require(_vault != address(0), "Binary: zero vault");
+        require(_configManager != address(0), "BinaryMarket: zero configManager");
+        require(_vault != address(0), "BinaryMarket: zero vault");
 
         CONFIG_MANAGER = ConfigurationManager(_configManager);
         VAULT = LiquidityVault(_vault);
@@ -98,15 +99,15 @@ contract Binary is Ownable, Pausable, ReentrancyGuard {
     // ─────────────────────────────────────────────────────────────────────────
 
     function oracle() public view returns (IOracle) {
-        return IOracle(CONFIG_MANAGER.getConfig(CONFIG_MANAGER.ORACLE()).toAddress());
+        return IOracle(CONFIG_MANAGER.getConfig(address(this), CONFIG_MANAGER.ORACLE()).toAddress());
     }
 
     function maxPayout() public view returns (uint256) {
-        return CONFIG_MANAGER.getConfig(CONFIG_MANAGER.MAX_PAYOUT()).toUint256();
+        return CONFIG_MANAGER.getConfig(address(this), CONFIG_MANAGER.MAX_PAYOUT()).toUint256();
     }
 
     function maxUtilizationBps() public view returns (uint256) {
-        return CONFIG_MANAGER.getConfig(CONFIG_MANAGER.MAX_UTILIZATION_BPS()).toUint256();
+        return CONFIG_MANAGER.getConfig(address(this), CONFIG_MANAGER.MAX_UTILIZATION_BPS()).toUint256();
     }
 
     function asset() public view returns (IERC20) {
@@ -114,11 +115,11 @@ contract Binary is Ownable, Pausable, ReentrancyGuard {
     }
 
     function feeBps() public view returns (uint256) {
-        return CONFIG_MANAGER.getConfig(CONFIG_MANAGER.FEE_BPS()).toUint256();
+        return CONFIG_MANAGER.getConfig(address(this), CONFIG_MANAGER.FEE_BPS()).toUint256();
     }
 
     function duration() public view returns (uint256) {
-        return CONFIG_MANAGER.getConfig(CONFIG_MANAGER.DURATION()).toUint256();
+        return CONFIG_MANAGER.getConfig(address(this), CONFIG_MANAGER.DURATION()).toUint256();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -137,7 +138,7 @@ contract Binary is Ownable, Pausable, ReentrancyGuard {
     {
         _autoSettle();
 
-        require(amount > 0, "Binary: zero amount");
+        require(amount > 0, "BinaryMarket: zero amount");
 
         IERC20 depositAsset = asset();
 
@@ -154,14 +155,14 @@ contract Binary is Ownable, Pausable, ReentrancyGuard {
             depositAsset.safeTransfer(address(VAULT), fee);
             stake = amount - fee;
         }
-        require(stake <= maxPayout(), "Binary: stake exceeds max");
+        require(stake <= maxPayout(), "BinaryMarket: stake exceeds max");
 
         // Lock stake * LEVERAGE from vault LP capital to cover max potential gain
         uint256 lockedAmount = stake * LEVERAGE;
         uint256 freeAssets = VAULT.totalAssets();
         require(
             VAULT.lockedAssets() + lockedAmount <= (freeAssets * maxUtilizationBps()) / BPS_DENOMINATION,
-            "Binary: vault utilization exceeded"
+            "BinaryMarket: vault utilization exceeded"
         );
 
         // Transfer stake into vault
@@ -169,7 +170,7 @@ contract Binary is Ownable, Pausable, ReentrancyGuard {
 
         // Get entry price and compute liquidation price
         uint256 entryPrice = oracle().getPrice();
-        require(entryPrice > 0, "Binary: invalid oracle price");
+        require(entryPrice > 0, "BinaryMarket: invalid oracle price");
 
         uint256 liqPrice = isLong
             ? entryPrice - entryPrice / (2 * LEVERAGE)
@@ -205,8 +206,8 @@ contract Binary is Ownable, Pausable, ReentrancyGuard {
     /// @param id  Position identifier.
     function settle(uint256 id) external nonReentrant {
         Position storage position = positions[id];
-        require(position.trader != address(0), "Binary: position does not exist");
-        require(!position.settled, "Binary: already settled");
+        require(position.trader != address(0), "BinaryMarket: position does not exist");
+        require(!position.settled, "BinaryMarket: already settled");
         _settle(position);
     }
 
@@ -269,7 +270,7 @@ contract Binary is Ownable, Pausable, ReentrancyGuard {
         uint256 payout = _calculatePayout(position, exitPrice);
         bool expired = block.timestamp >= position.openTime + duration();
 
-        require(expired || payout == 0, "Binary: position not yet settleable");
+        require(expired || payout == 0, "BinaryMarket: position not yet settleable");
 
         position.settled = true;
 

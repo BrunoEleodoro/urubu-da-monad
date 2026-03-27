@@ -24,6 +24,7 @@ import {LiquidityVault} from "../src/LiquidityVault.sol";
 contract AddLiquidity is Script {
     function _load()
         internal
+        view
         returns (
             uint256 depositorPk,
             address depositor,
@@ -33,6 +34,7 @@ contract AddLiquidity is Script {
         )
     {
         uint256 mnemonicIndex = vm.envOr("MNEMONIC_INDEX", uint256(0));
+        // forge-lint: disable-next-line(unsafe-cheatcode,unsafe-typecast)
         depositorPk = vm.deriveKey(vm.envString("MNEMONIC"), uint32(mnemonicIndex));
         depositor = vm.addr(depositorPk);
         vault = LiquidityVault(vm.envAddress("VAULT_ADDRESS"));
@@ -42,7 +44,7 @@ contract AddLiquidity is Script {
 
     /// @notice Step 1: approve the vault to pull DEPOSIT_AMOUNT from the depositor.
     function approve() external {
-        (uint256 pk, address depositor, LiquidityVault vault, IERC20 asset, uint256 amount) = _load();
+        (uint256 pk, address depositor, LiquidityVault vault, IERC20 asset,) = _load();
 
         console.log("=== Step 1: Approve ===");
         console.log("Depositor: ", depositor);
