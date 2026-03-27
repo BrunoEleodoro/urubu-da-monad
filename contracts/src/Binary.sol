@@ -36,9 +36,9 @@ contract Binary is Ownable, Pausable, ReentrancyGuard {
     // ─────────────────────────────────────────────────────────────────────────
 
     /// @notice Configuration store from which oracle, maxPayout, and maxUtilizationBps are read.
-    ConfigurationManager public immutable configManager;
+    ConfigurationManager public immutable CONFIG_MANAGER;
 
-    LiquidityVault public immutable vault;
+    LiquidityVault public immutable VAULT;
 
     uint88 private _nextId;
 
@@ -89,8 +89,8 @@ contract Binary is Ownable, Pausable, ReentrancyGuard {
         require(_configManager != address(0), "Binary: zero configManager");
         require(_vault != address(0), "Binary: zero vault");
 
-        configManager = ConfigurationManager(_configManager);
-        vault = LiquidityVault(_vault);
+        CONFIG_MANAGER = ConfigurationManager(_configManager);
+        VAULT = LiquidityVault(_vault);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -98,27 +98,27 @@ contract Binary is Ownable, Pausable, ReentrancyGuard {
     // ─────────────────────────────────────────────────────────────────────────
 
     function oracle() public view returns (IOracle) {
-        return IOracle(configManager.getConfig(configManager.ORACLE()).toAddress());
+        return IOracle(CONFIG_MANAGER.getConfig(CONFIG_MANAGER.ORACLE()).toAddress());
     }
 
     function maxPayout() public view returns (uint256) {
-        return configManager.getConfig(configManager.MAX_PAYOUT()).toUint256();
+        return CONFIG_MANAGER.getConfig(CONFIG_MANAGER.MAX_PAYOUT()).toUint256();
     }
 
     function maxUtilizationBps() public view returns (uint256) {
-        return configManager.getConfig(configManager.MAX_UTILIZATION_BPS()).toUint256();
+        return CONFIG_MANAGER.getConfig(CONFIG_MANAGER.MAX_UTILIZATION_BPS()).toUint256();
     }
 
     function asset() public view returns (IERC20) {
-        return IERC20(vault.asset());
+        return IERC20(VAULT.asset());
     }
 
     function feeBps() public view returns (uint256) {
-        return configManager.getConfig(configManager.FEE_BPS()).toUint256();
+        return CONFIG_MANAGER.getConfig(CONFIG_MANAGER.FEE_BPS()).toUint256();
     }
 
     function duration() public view returns (uint256) {
-        return configManager.getConfig(configManager.DURATION()).toUint256();
+        return CONFIG_MANAGER.getConfig(CONFIG_MANAGER.DURATION()).toUint256();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -151,21 +151,21 @@ contract Binary is Ownable, Pausable, ReentrancyGuard {
             stake = amount;
         } else {
             uint256 fee = (amount * feeBps_) / BPS_DENOMINATION;
-            depositAsset.safeTransfer(address(vault), fee);
+            depositAsset.safeTransfer(address(VAULT), fee);
             stake = amount - fee;
         }
         require(stake <= maxPayout(), "Binary: stake exceeds max");
 
         // Lock stake * LEVERAGE from vault LP capital to cover max potential gain
         uint256 lockedAmount = stake * LEVERAGE;
-        uint256 freeAssets = vault.totalAssets();
+        uint256 freeAssets = VAULT.totalAssets();
         require(
-            vault.lockedAssets() + lockedAmount <= (freeAssets * maxUtilizationBps()) / BPS_DENOMINATION,
+            VAULT.lockedAssets() + lockedAmount <= (freeAssets * maxUtilizationBps()) / BPS_DENOMINATION,
             "Binary: vault utilization exceeded"
         );
 
         // Transfer stake into vault
-        depositAsset.safeTransfer(address(vault), stake);
+        depositAsset.safeTransfer(address(VAULT), stake);
 
         // Get entry price and compute liquidation price
         uint256 entryPrice = oracle().getPrice();
@@ -176,7 +176,7 @@ contract Binary is Ownable, Pausable, ReentrancyGuard {
             : entryPrice + entryPrice / (2 * LEVERAGE);
 
         // Lock vault liquidity for potential payout
-        vault.lockLiquidity(lockedAmount);
+        VAULT.lockLiquidity(lockedAmount);
 
         // Store position
         uint88 posId = _nextId++;
@@ -275,10 +275,10 @@ contract Binary is Ownable, Pausable, ReentrancyGuard {
 
         uint256 lockedAmount = position.stake * LEVERAGE;
         if (payout > 0) {
-            vault.releaseLiquidity(lockedAmount, position.trader, payout);
+            VAULT.releaseLiquidity(lockedAmount, position.trader, payout);
         } else {
             // Liquidated: all funds remain in LiquidityVault as LP yield
-            vault.releaseLiquidity(lockedAmount, address(vault), 0);
+            VAULT.releaseLiquidity(lockedAmount, address(VAULT), 0);
         }
 
         emit PositionSettled(position.id, msg.sender, payout, exitPrice);

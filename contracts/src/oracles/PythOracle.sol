@@ -19,12 +19,12 @@ interface IPyth {
 /// @title PythOracle
 /// @notice Wraps a Pyth Network price feed into the IOracle interface.
 ///         Converts Pyth's (price, expo) representation into a plain integer scaled
-///         to `targetDecimals` (e.g. 6 for USDC, 18 for WAD).
+///         to `TARGET_DECIMALS` (e.g. 6 for USDC, 18 for WAD).
 contract PythOracle is IOracle {
-    IPyth   public immutable pyth;
-    bytes32 public immutable priceId;
-    uint256 public immutable maxAge;
-    uint8   public immutable targetDecimals;
+    IPyth   public immutable PYTH;
+    bytes32 public immutable PRICE_ID;
+    uint256 public immutable MAX_AGE;
+    uint8   public immutable TARGET_DECIMALS;
 
     /// @param _pyth           Pyth contract address on the target chain.
     /// @param _priceId        Pyth price feed ID (e.g. ETH/USD).
@@ -35,23 +35,23 @@ contract PythOracle is IOracle {
         require(_priceId != bytes32(0), "PythOracle: zero priceId");
         require(_maxAge > 0, "PythOracle: zero maxAge");
 
-        pyth           = IPyth(_pyth);
-        priceId        = _priceId;
-        maxAge         = _maxAge;
-        targetDecimals = _targetDecimals;
+        PYTH            = IPyth(_pyth);
+        PRICE_ID        = _priceId;
+        MAX_AGE         = _maxAge;
+        TARGET_DECIMALS = _targetDecimals;
     }
 
-    /// @notice Returns the latest Pyth price scaled to `targetDecimals`.
+    /// @notice Returns the latest Pyth price scaled to `TARGET_DECIMALS`.
     /// @dev Reverts if the price is stale or non-positive.
     function getPrice() external view returns (uint256) {
-        PythPrice memory p = pyth.getPriceNoOlderThan(priceId, maxAge);
+        PythPrice memory p = PYTH.getPriceNoOlderThan(PRICE_ID, MAX_AGE);
         require(p.price > 0, "PythOracle: non-positive price");
-        return _scale(uint64(p.price), p.expo, targetDecimals);
+        return _scale(uint64(p.price), p.expo, TARGET_DECIMALS);
     }
 
-    /// @notice Returns true when a fresh price is available within `maxAge`.
+    /// @notice Returns true when a fresh price is available within `MAX_AGE`.
     function hasEnoughHistory() external view returns (bool) {
-        try pyth.getPriceNoOlderThan(priceId, maxAge) returns (PythPrice memory p) {
+        try PYTH.getPriceNoOlderThan(PRICE_ID, MAX_AGE) returns (PythPrice memory p) {
             return p.price > 0;
         } catch {
             return false;
@@ -63,13 +63,15 @@ contract PythOracle is IOracle {
     // ─────────────────────────────────────────────────────────────────────────
 
     /// @dev Converts a Pyth (price, expo) pair to an integer with `decimals` precision.
-    ///      Pyth represents value as price × 10^expo.  We want price × 10^(-targetDecimals).
-    ///      The net exponent shift is (expo + targetDecimals).
+    ///      Pyth represents value as price × 10^expo.  We want price × 10^(-TARGET_DECIMALS).
+    ///      The net exponent shift is (expo + TARGET_DECIMALS).
     function _scale(uint64 price, int32 expo, uint8 decimals) private pure returns (uint256) {
         int32 shift = expo + int32(uint32(decimals));
         if (shift >= 0) {
+            // forge-lint: disable-next-line(unsafe-typecast)
             return uint256(price) * (10 ** uint32(shift));
         } else {
+            // forge-lint: disable-next-line(unsafe-typecast)
             return uint256(price) / (10 ** uint32(-shift));
         }
     }

@@ -20,7 +20,7 @@ contract LiquidityVault is ERC4626 {
     using ConfigParser for bytes32;
 
     /// @notice Configuration store that holds the controller address.
-    ConfigurationManager public immutable configManager;
+    ConfigurationManager public immutable CONFIG_MANAGER;
 
     /// @notice Sum of all outstanding position payouts currently reserved.
     uint256 public lockedAssets;
@@ -29,11 +29,15 @@ contract LiquidityVault is ERC4626 {
     event LiquidityReleased(uint256 locked, address indexed recipient, uint256 payout);
 
     modifier onlyController() {
+        _onlyController();
+        _;
+    }
+
+    function _onlyController() private view {
         require(
-            msg.sender == configManager.getConfig(configManager.VAULT_CONTROLLER()).toAddress(),
+            msg.sender == CONFIG_MANAGER.getConfig(CONFIG_MANAGER.VAULT_CONTROLLER()).toAddress(),
             "LiquidityVault: caller is not controller"
         );
-        _;
     }
 
     constructor(
@@ -46,7 +50,7 @@ contract LiquidityVault is ERC4626 {
         ERC20(name_, symbol_)
     {
         require(address(configManager_) != address(0), "LiquidityVault: zero configManager");
-        configManager = configManager_;
+        CONFIG_MANAGER = configManager_;
     }
 
     // ─────────────────────────────────────────────────────────────────────────

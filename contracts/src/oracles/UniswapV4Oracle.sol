@@ -13,11 +13,11 @@ import {IOracle} from "../interfaces/IOracle.sol";
 ///         spot price (no TWAP).  hasEnoughHistory() simply checks the pool is
 ///         initialized (sqrtPriceX96 > 0).
 contract UniswapV4Oracle is IOracle {
-    IUniswapV4StateView public immutable stateView;
-    bytes32             public immutable poolId;
-    address             public immutable baseToken;
-    address             public immutable quoteToken;
-    uint128             public immutable baseAmount;
+    IUniswapV4StateView public immutable STATE_VIEW;
+    bytes32             public immutable POOL_ID;
+    address             public immutable BASE_TOKEN;
+    address             public immutable QUOTE_TOKEN;
+    uint128             public immutable BASE_AMOUNT;
 
     /// @param _stateView  Uniswap V4 StateView contract address.
     /// @param _poolId     32-byte pool identifier (keccak256 of the PoolKey).
@@ -37,22 +37,22 @@ contract UniswapV4Oracle is IOracle {
         // _baseToken may be address(0) for native assets (e.g. MON on Monad)
         require(_baseAmount > 0,           "UniswapV4Oracle: zero baseAmount");
 
-        stateView  = IUniswapV4StateView(_stateView);
-        poolId     = _poolId;
-        baseToken  = _baseToken;
-        quoteToken = _quoteToken;
-        baseAmount = _baseAmount;
+        STATE_VIEW  = IUniswapV4StateView(_stateView);
+        POOL_ID     = _poolId;
+        BASE_TOKEN  = _baseToken;
+        QUOTE_TOKEN = _quoteToken;
+        BASE_AMOUNT = _baseAmount;
     }
 
-    /// @notice Returns the spot price as quoteToken amount per baseAmount of baseToken.
+    /// @notice Returns the spot price as QUOTE_TOKEN amount per BASE_AMOUNT of BASE_TOKEN.
     function getPrice() external view returns (uint256) {
-        (, int24 tick,,) = stateView.getSlot0(poolId);
-        return OracleLibrary.getQuoteAtTick(tick, baseAmount, baseToken, quoteToken);
+        (, int24 tick,,) = STATE_VIEW.getSlot0(POOL_ID);
+        return OracleLibrary.getQuoteAtTick(tick, BASE_AMOUNT, BASE_TOKEN, QUOTE_TOKEN);
     }
 
     /// @notice Returns true when the pool is initialized (sqrtPriceX96 > 0).
     function hasEnoughHistory() external view returns (bool) {
-        (uint160 sqrtPriceX96,,,) = stateView.getSlot0(poolId);
+        (uint160 sqrtPriceX96,,,) = STATE_VIEW.getSlot0(POOL_ID);
         return sqrtPriceX96 > 0;
     }
 }
