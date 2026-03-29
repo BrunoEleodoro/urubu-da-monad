@@ -44,12 +44,13 @@ contract Deploy is Script {
         console.log("LiquidityVault:", address(vault));
 
         // 4. Deploy BinaryMarket
-        BinaryMarket market = new BinaryMarket(address(configManager), address(vault));
+        BinaryMarket market = new BinaryMarket(address(configManager));
         console.log("BinaryMarket:", address(market));
 
         // 5. Register market and configure protocol parameters
         configManager.addMarket(address(market));
 
+        configManager.set(address(market), configManager.VAULT(),               bytes32(uint256(uint160(address(vault)))));
         configManager.set(address(market), configManager.ORACLE(),              bytes32(uint256(uint160(address(oracle)))));
         configManager.set(address(market), configManager.MAX_PAYOUT(),          bytes32(maxPayout));
         configManager.set(address(market), configManager.MAX_UTILIZATION_BPS(), bytes32(maxUtilizationBps));

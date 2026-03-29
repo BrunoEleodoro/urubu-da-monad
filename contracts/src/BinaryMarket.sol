@@ -39,9 +39,8 @@ contract BinaryMarket is Ownable, Pausable, ReentrancyGuard {
     /// @notice Configuration store from which per-market config is read.
     ConfigurationManager public immutable CONFIG_MANAGER;
 
-    LiquidityVault public immutable VAULT;
-
     uint88 private _nextId;
+    uint88[] private _openIds;
 
     struct Position {
         uint88 id;                // self-referencing id; packs with trader in same slot
@@ -55,8 +54,6 @@ contract BinaryMarket is Ownable, Pausable, ReentrancyGuard {
     }
 
     mapping(uint256 => Position) public positions;
-
-    uint88[] private _openIds;
 
     // ─────────────────────────────────────────────────────────────────────────
     // Events
@@ -83,20 +80,18 @@ contract BinaryMarket is Ownable, Pausable, ReentrancyGuard {
     // Constructor
     // ─────────────────────────────────────────────────────────────────────────
 
-    constructor(
-        address _configManager,
-        address _vault
-    ) Ownable(msg.sender) {
+    constructor(address _configManager) Ownable(msg.sender) {
         require(_configManager != address(0), "BinaryMarket: zero configManager");
-        require(_vault != address(0), "BinaryMarket: zero vault");
-
         CONFIG_MANAGER = ConfigurationManager(_configManager);
-        VAULT = LiquidityVault(_vault);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Config views
     // ─────────────────────────────────────────────────────────────────────────
+
+    function vault() public view returns (LiquidityVault) {
+        return LiquidityVault(CONFIG_MANAGER.getConfig(address(this), CONFIG_MANAGER.VAULT()).toAddress());
+    }
 
     function oracle() public view returns (IOracle) {
         return IOracle(CONFIG_MANAGER.getConfig(address(this), CONFIG_MANAGER.ORACLE()).toAddress());
@@ -111,7 +106,7 @@ contract BinaryMarket is Ownable, Pausable, ReentrancyGuard {
     }
 
     function asset() public view returns (IERC20) {
-        return IERC20(VAULT.asset());
+        return IERC20(vault().asset());
     }
 
     function feeBps() public view returns (uint256) {
@@ -140,7 +135,8 @@ contract BinaryMarket is Ownable, Pausable, ReentrancyGuard {
 
         require(amount > 0, "BinaryMarket: zero amount");
 
-        IERC20 depositAsset = asset();
+        LiquidityVault vault_ = vault();
+        IERC20 depositAsset = IERC20(vault_.asset());
 
         // Pull funds from trader
         depositAsset.safeTransferFrom(msg.sender, address(this), amount);
@@ -152,21 +148,21 @@ contract BinaryMarket is Ownable, Pausable, ReentrancyGuard {
             stake = amount;
         } else {
             uint256 fee = (amount * feeBps_) / BPS_DENOMINATION;
-            depositAsset.safeTransfer(address(VAULT), fee);
+            depositAsset.safeTransfer(address(vault_), fee);
             stake = amount - fee;
         }
         require(stake <= maxPayout(), "BinaryMarket: stake exceeds max");
 
         // Lock stake * LEVERAGE from vault LP capital to cover max potential gain
         uint256 lockedAmount = stake * LEVERAGE;
-        uint256 freeAssets = VAULT.totalAssets();
+        uint256 freeAssets = vault_.totalAssets();
         require(
-            VAULT.lockedAssets() + lockedAmount <= (freeAssets * maxUtilizationBps()) / BPS_DENOMINATION,
+            vault_.lockedAssets() + lockedAmount <= (freeAssets * maxUtilizationBps()) / BPS_DENOMINATION,
             "BinaryMarket: vault utilization exceeded"
         );
 
         // Transfer stake into vault
-        depositAsset.safeTransfer(address(VAULT), stake);
+        depositAsset.safeTransfer(address(vault_), stake);
 
         // Get entry price and compute liquidation price
         uint256 entryPrice = oracle().getPrice();
@@ -177,7 +173,7 @@ contract BinaryMarket is Ownable, Pausable, ReentrancyGuard {
             : entryPrice + entryPrice / (2 * LEVERAGE);
 
         // Lock vault liquidity for potential payout
-        VAULT.lockLiquidity(lockedAmount);
+        vault_.lockLiquidity(lockedAmount);
 
         // Store position
         uint88 posId = _nextId++;
@@ -274,12 +270,13 @@ contract BinaryMarket is Ownable, Pausable, ReentrancyGuard {
 
         position.settled = true;
 
+        LiquidityVault vault_ = vault();
         uint256 lockedAmount = position.stake * LEVERAGE;
         if (payout > 0) {
-            VAULT.releaseLiquidity(lockedAmount, position.trader, payout);
+            vault_.releaseLiquidity(lockedAmount, position.trader, payout);
         } else {
             // Liquidated: all funds remain in LiquidityVault as LP yield
-            VAULT.releaseLiquidity(lockedAmount, address(VAULT), 0);
+            vault_.releaseLiquidity(lockedAmount, address(vault_), 0);
         }
 
         emit PositionSettled(position.id, msg.sender, payout, exitPrice);

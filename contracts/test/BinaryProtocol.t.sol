@@ -178,9 +178,10 @@ contract BinaryMarketTest is Test {
 
         configManager = new ConfigurationManager();
         vault = new LiquidityVault(IERC20(address(asset)), "Liquidity Vault", "lvUSDC", configManager);
-        controller = new BinaryMarket(address(configManager), address(vault));
+        controller = new BinaryMarket(address(configManager));
 
         configManager.addMarket(address(controller));
+        configManager.set(address(controller), configManager.VAULT(),               bytes32(uint256(uint160(address(vault)))));
         configManager.set(address(controller), configManager.ORACLE(),              bytes32(uint256(uint160(address(oracle)))));
         configManager.set(address(controller), configManager.MAX_PAYOUT(),          bytes32(uint256(10_000e6)));
         configManager.set(address(controller), configManager.MAX_UTILIZATION_BPS(), bytes32(uint256(8000)));
@@ -473,8 +474,9 @@ contract BinaryMarketTest is Test {
     // ── shared vault ──────────────────────────────────────────────────────────
 
     function test_twoMarkets_shareVault() public {
-        BinaryMarket market2 = new BinaryMarket(address(configManager), address(vault));
+        BinaryMarket market2 = new BinaryMarket(address(configManager));
         configManager.addMarket(address(market2));
+        configManager.set(address(market2), configManager.VAULT(),               bytes32(uint256(uint160(address(vault)))));
         configManager.set(address(market2), configManager.ORACLE(),              bytes32(uint256(uint160(address(oracle)))));
         configManager.set(address(market2), configManager.MAX_PAYOUT(),          bytes32(uint256(10_000e6)));
         configManager.set(address(market2), configManager.MAX_UTILIZATION_BPS(), bytes32(uint256(8000)));
@@ -525,9 +527,10 @@ contract BinaryMarketFuzzTest is Test {
 
         configManager = new ConfigurationManager();
         vault = new LiquidityVault(IERC20(address(asset)), "LV", "LV", configManager);
-        controller = new BinaryMarket(address(configManager), address(vault));
+        controller = new BinaryMarket(address(configManager));
 
         configManager.addMarket(address(controller));
+        configManager.set(address(controller), configManager.VAULT(),               bytes32(uint256(uint160(address(vault)))));
         configManager.set(address(controller), configManager.ORACLE(),              bytes32(uint256(uint160(address(oracle)))));
         configManager.set(address(controller), configManager.MAX_PAYOUT(),          bytes32(uint256(100_000e6)));
         configManager.set(address(controller), configManager.MAX_UTILIZATION_BPS(), bytes32(uint256(8000)));

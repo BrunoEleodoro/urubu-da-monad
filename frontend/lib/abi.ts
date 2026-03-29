@@ -138,7 +138,7 @@ export const binaryAbi = [
   },
   {
     type: "function",
-    name: "VAULT",
+    name: "vault",
     inputs: [],
     outputs: [{ name: "", type: "address" }],
     stateMutability: "view",

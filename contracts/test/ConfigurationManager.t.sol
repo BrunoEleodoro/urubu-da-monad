@@ -39,9 +39,10 @@ contract ConfigurationManagerTest is Test {
 
         configManager = new ConfigurationManager();
         vault = new LiquidityVault(IERC20(address(asset)), "LV", "LV", configManager);
-        binary = new BinaryMarket(address(configManager), address(vault));
+        binary = new BinaryMarket(address(configManager));
 
         configManager.addMarket(address(binary));
+        configManager.set(address(binary), configManager.VAULT(),               bytes32(uint256(uint160(address(vault)))));
         configManager.set(address(binary), configManager.ORACLE(),              bytes32(uint256(uint160(address(oracle)))));
         configManager.set(address(binary), configManager.MAX_PAYOUT(),          bytes32(uint256(10_000e6)));
         configManager.set(address(binary), configManager.MAX_UTILIZATION_BPS(), bytes32(uint256(8000)));
@@ -133,12 +134,19 @@ contract ConfigurationManagerTest is Test {
     // ── Markets share config namespace ────────────────────────────────────────
 
     function test_twoMarkets_independentConfig() public {
-        BinaryMarket binary2 = new BinaryMarket(address(configManager), address(vault));
+        BinaryMarket binary2 = new BinaryMarket(address(configManager));
         configManager.addMarket(address(binary2));
-
+        configManager.set(address(binary2), configManager.VAULT(),      bytes32(uint256(uint160(address(vault)))));
         configManager.set(address(binary2), configManager.MAX_PAYOUT(), bytes32(uint256(500e6)));
 
         assertEq(binary.maxPayout(), 10_000e6);
         assertEq(binary2.maxPayout(), 500e6);
+    }
+
+    function test_vault_swappable() public {
+        LiquidityVault vault2 = new LiquidityVault(IERC20(address(asset)), "LV2", "LV2", configManager);
+        configManager.set(address(binary), configManager.VAULT(), bytes32(uint256(uint160(address(vault2)))));
+
+        assertEq(address(binary.vault()), address(vault2));
     }
 }

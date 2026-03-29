@@ -16,6 +16,7 @@ contract ConfigurationManager is Ownable {
     bytes32 public constant MAX_PAYOUT          = "MAX_PAYOUT";
     bytes32 public constant MAX_UTILIZATION_BPS = "MAX_UTILIZATION_BPS";
     bytes32 public constant ORACLE              = "ORACLE";
+    bytes32 public constant VAULT               = "VAULT";
     bytes32 public constant FEE_BPS             = "FEE_BPS";
     bytes32 public constant DURATION            = "DURATION";
 
