@@ -21,7 +21,7 @@ const STEPS = [
     eyebrow: 'Como funciona',
     title: 'Você opera com fluxo real, mas a leitura é simples',
     description:
-      'Cada entrada pede a confirmação de 1 USDC na Monad Mainnet. O gráfico e a tabela ficam ao vivo o tempo todo, e o fluxo de depósito e saque via PIX continua disponível no app.',
+      'Cada entrada aprova USDC e abre uma posição real no contrato Binary da Monad Mainnet. O gráfico e a tabela ficam ao vivo o tempo todo, e o fluxo de depósito e saque via PIX continua disponível no app.',
   },
   {
     eyebrow: 'Sua carteira',
@@ -56,7 +56,9 @@ export function OnboardingScreen({
             {STEPS.map((entry, index) => (
               <span
                 key={entry.eyebrow}
-                className={index === step ? styles.indicatorActive : styles.indicator}
+                className={
+                  index === step ? styles.indicatorActive : styles.indicator
+                }
               />
             ))}
           </div>
@@ -77,7 +79,9 @@ export function OnboardingScreen({
                   id="wallet-label"
                   className={styles.input}
                   value={walletLabel}
-                  onChange={(event) => setWalletLabel(event.currentTarget.value)}
+                  onChange={(event) =>
+                    setWalletLabel(event.currentTarget.value)
+                  }
                   maxLength={32}
                   placeholder="Carteira Urubu"
                 />
@@ -90,7 +94,9 @@ export function OnboardingScreen({
                   }}
                   disabled={busy}
                 >
-                  {busy ? 'Criando sua carteira...' : 'Criar carteira com passkey'}
+                  {busy
+                    ? 'Criando sua carteira...'
+                    : 'Criar carteira com passkey'}
                 </button>
 
                 <p className={styles.helper}>
@@ -129,13 +135,14 @@ export function OnboardingScreen({
             <ul className={styles.list}>
               <li>Gráfico de preço da MON com atualização ao vivo.</li>
               <li>Tabela em tempo real com preço, confiança, EMA e horário.</li>
-              <li>Rodadas rápidas para escolher alta ou baixa.</li>
+              <li>Posições reais onchain para escolher alta ou baixa.</li>
               <li>Depósito e saque com PIX via Orda.</li>
               <li>Carteira no navegador protegida por passkey.</li>
             </ul>
 
             <div className={styles.note}>
-              Quando você já tiver uma passkey cadastrada, essa etapa desaparece e o site abre direto com a carteira carregada.
+              Quando você já tiver uma passkey cadastrada, essa etapa desaparece
+              e o site abre direto com a carteira carregada.
             </div>
           </div>
         </div>

@@ -1,6 +1,11 @@
-import App from '@/components/pages/app'
 import { APP_URL } from '@/lib/constants'
 import type { Metadata } from 'next'
+import dynamic from 'next/dynamic'
+
+const App = dynamic(() => import('@/components/pages/app'), {
+  ssr: false,
+  loading: () => null,
+})
 
 const launchUrl = `${APP_URL}/?miniApp=true`
 

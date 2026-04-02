@@ -11,15 +11,11 @@ import {
   useState,
 } from 'react'
 
-import {
-  monadTradeSimulationRecipient,
-  monadUsdc,
-} from '@/lib/chains'
+import { monadUsdc } from '@/lib/chains'
 
 import styles from './game-screen.module.css'
 
 const PAIR = 'MON/USD'
-const CHAIN = 'Monad Mainnet'
 const FEED =
   '0x31491744e2dbf6df7fcf4ac0820d18a609b49076d45066d3568424e62f686cd1'
 const LATEST_API = 'https://hermes.pyth.network/v2/updates/price/latest'
@@ -27,10 +23,8 @@ const STREAM_API = 'https://hermes.pyth.network/v2/updates/price/stream'
 const MAX = 12
 const MAX_CHART_POINTS = 240
 const STREAM_RETRY_MS = 2000
-const ROUND_DURATION_MS = 2 * 60 * 1000
 const MAX_BET = 1
 const MIN_BET = 0.1
-const SIMULATED_TRADE_AMOUNT = 1
 const PAD = { top: 24, right: 80, bottom: 40, left: 16 }
 const CONFETTI_PIECES = Array.from({ length: 24 }, (_, index) => ({
   id: index,
@@ -59,6 +53,7 @@ interface ChartPoint {
 }
 
 interface ActiveBet {
+  id?: string
   direction: Direction
   amount: number
   entryPrice: number
@@ -66,6 +61,7 @@ interface ActiveBet {
 }
 
 interface BetMarker {
+  id?: string
   t: number
   price: number
   amount: number
@@ -97,13 +93,59 @@ export interface WalletUiState {
   status: string
 }
 
-interface TradeSimulationResult {
+export interface ProtocolUiState {
+  binaryAddress: string
+  durationSeconds: number
+  error: string | null
+  feeBps: number
+  loading: boolean
+  maxOpenAmountLabel: string
+  maxOpenAmountValue: number
+  maxPayoutLabel: string
+  oracleAddress: string
+  oraclePriceLabel: string
+  paused: boolean
+  utilizationLabel: string
+  vaultAddress: string
+  vaultLockedLabel: string
+  vaultTvlLabel: string
+}
+
+export interface ActivePositionUiState {
+  contractPayoutLabel: string
+  contractPayoutValue: number
+  direction: Direction
+  entryPrice: number
+  id: string
+  liquidationPrice: number
+  openTimeMs: number
+  pnlPercent: number
+  pnlValue: number
+  settleAtMs: number
+  stakeLabel: string
+  stakeValue: number
+}
+
+interface OpenTradeResult {
+  approvalLabel?: string | null
   amountLabel: string
-  receiverLabel: string
+  positionLabel: string
+  stakeLabel: string
+  transactionLabel: string
+}
+
+interface SettleTradeResult {
+  exitPrice: number
+  payoutValue: number
+  pnlPercent: number
+  pnlValue: number
+  tone: 'win' | 'lose'
   transactionLabel: string
 }
 
 interface GameScreenProps {
+  activePosition: ActivePositionUiState | null
+  protocol: ProtocolUiState
   wallet: WalletUiState
   showPasskeyWalletButton: boolean
   onConnectWallet: () => Promise<void>
@@ -112,10 +154,11 @@ interface GameScreenProps {
   onOpenOffRamp: () => void
   onOpenOnRamp: () => void
   onOpenPasskeyWallet: () => void
-  onSimulateTrade: (input: {
+  onPlaceTrade: (input: {
     direction: Direction
     amount: number
-  }) => Promise<TradeSimulationResult>
+  }) => Promise<OpenTradeResult>
+  onSettleTrade: () => Promise<SettleTradeResult>
 }
 
 function cn(...classNames: Array<string | false | null | undefined>) {
@@ -134,13 +177,18 @@ function clampBet(value: number) {
 
 function parseEntry(node: {
   id: string
-  price: { price: string; conf: string; expo: string | number; publish_time: string | number }
+  price: {
+    price: string
+    conf: string
+    expo: string | number
+    publish_time: string | number
+  }
   ema_price: { price: string }
 }) {
   const priceNode = node.price
   const emaNode = node.ema_price
   const expo = Number(priceNode.expo)
-  const mul = Math.pow(10, expo)
+  const mul = 10 ** expo
 
   return {
     id: node.id,
@@ -173,13 +221,10 @@ function axisUsdDigits(min: number, max: number) {
 }
 
 function fmtUsd(value: number, digits = usdDigits(value)) {
-  return (
-    'US$ ' +
-    value.toLocaleString('pt-BR', {
-      minimumFractionDigits: digits,
-      maximumFractionDigits: digits,
-    })
-  )
+  return `US$ ${value.toLocaleString('pt-BR', {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  })}`
 }
 
 function fmt(value: number) {
@@ -205,7 +250,7 @@ function entryKey(entry: PriceEntry) {
 
 function getErrorMessage(error: unknown) {
   if (error instanceof Error && error.message) return error.message
-  return 'Nao foi possivel enviar a transferencia de 1 USDC.'
+  return 'Nao foi possivel abrir a posicao no contrato.'
 }
 
 async function copyText(value: string) {
@@ -254,6 +299,8 @@ async function fetchLatestPrice() {
 }
 
 export function GameScreen({
+  activePosition,
+  protocol,
   wallet,
   showPasskeyWalletButton,
   onConnectWallet,
@@ -262,7 +309,8 @@ export function GameScreen({
   onOpenOffRamp,
   onOpenOnRamp,
   onOpenPasskeyWallet,
-  onSimulateTrade,
+  onPlaceTrade,
+  onSettleTrade,
 }: GameScreenProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const contextRef = useRef<CanvasRenderingContext2D | null>(null)
@@ -274,6 +322,7 @@ export function GameScreen({
   const nextRoundTimeoutRef = useRef<number | null>(null)
   const dimensionsRef = useRef({ width: 0, height: 0, dpr: 1 })
   const lastEntryKeyRef = useRef<string | null>(null)
+  const activePositionIdRef = useRef<string | null>(null)
   const cacheRef = useRef<PriceEntry[]>([])
   const chartPointsRef = useRef<ChartPoint[]>([])
   const firstPriceRef = useRef<number | null>(null)
@@ -286,7 +335,6 @@ export function GameScreen({
   const roundStateRef = useRef<'waiting' | 'open' | 'cooldown'>('waiting')
   const activeBetRef = useRef<ActiveBet | null>(null)
   const betMarkersRef = useRef<BetMarker[]>([])
-  const demoBalanceRef = useRef(25000)
   const liveEnabledRef = useRef(false)
   const tradePendingDirectionRef = useRef<Direction | null>(null)
 
@@ -303,24 +351,22 @@ export function GameScreen({
   )
   const [hasMarketData, setHasMarketData] = useState(false)
   const [activeBet, setActiveBet] = useState<ActiveBet | null>(null)
+  const [isSettlingTrade, setIsSettlingTrade] = useState(false)
   const [tradePendingDirection, setTradePendingDirection] =
     useState<Direction | null>(null)
   const [roundResult, setRoundResult] = useState<RoundResult | null>(null)
   const [addressCopied, setAddressCopied] = useState(false)
   const [tradeNotice, setTradeNotice] = useState<TradeNotice>({
     tone: 'default',
-    message: `Cada operacao envia ${SIMULATED_TRADE_AMOUNT.toFixed(2)} ${monadUsdc.symbol} para ${shortenAddress(monadTradeSimulationRecipient)} na ${CHAIN}.`,
+    message: 'Abra uma posicao real no Binary usando USDC na Monad Mainnet.',
   })
 
   const deferredCache = useDeferredValue(cache)
 
-  const setRoundMode = useCallback(
-    (value: 'waiting' | 'open' | 'cooldown') => {
-      roundStateRef.current = value
-      setRoundState(value)
-    },
-    [],
-  )
+  const setRoundMode = useCallback((value: 'waiting' | 'open' | 'cooldown') => {
+    roundStateRef.current = value
+    setRoundState(value)
+  }, [])
 
   const setCurrentBet = useCallback((value: ActiveBet | null) => {
     activeBetRef.current = value
@@ -357,12 +403,17 @@ export function GameScreen({
       if (roundStartTimeRef.current) {
         const remaining = Math.max(
           0,
-          ROUND_DURATION_MS - (Date.now() - roundStartTimeRef.current),
+          (activePosition?.settleAtMs ?? 0) - Date.now(),
         )
-        const seconds = Math.ceil(remaining / 1000)
-        const minutesValue = Math.floor(seconds / 60)
-        const secondsValue = seconds % 60
-        timerNode.textContent = `${String(minutesValue).padStart(2, '0')}:${String(secondsValue).padStart(2, '0')}`
+
+        if (remaining > 0) {
+          const seconds = Math.ceil(remaining / 1000)
+          const minutesValue = Math.floor(seconds / 60)
+          const secondsValue = seconds % 60
+          timerNode.textContent = `${String(minutesValue).padStart(2, '0')}:${String(secondsValue).padStart(2, '0')}`
+        } else {
+          timerNode.textContent = 'ENCERRAR'
+        }
       } else {
         timerNode.textContent = ''
       }
@@ -373,22 +424,30 @@ export function GameScreen({
         detailNode.textContent = `${PAIR} · ${fmtHi(currentPrice)}`
         detailNode.dataset.tone = 'idle'
         hintNode.style.display = ''
-        hintNode.textContent =
-          roundStateRef.current === 'open'
+        hintNode.textContent = protocol.paused
+          ? 'Protocolo pausado no contrato'
+          : roundStateRef.current === 'open'
             ? 'Escolha alta ▲ ou baixa ▼'
             : hasMarketData
-              ? 'Proxima rodada abrindo...'
+              ? 'Aguardando uma posicao ativa'
               : 'Conectando ao feed ao vivo de MON/USD...'
         return
       }
 
       const bet = activeBetRef.current
-      const priceDiff = currentPrice - bet.entryPrice
-      const pctChange = priceDiff / bet.entryPrice
-      const dirMult = bet.direction === 'down' ? -1 : 1
-      const totalPnl = bet.amount * pctChange * dirMult * 10
+      const favorable =
+        bet.direction === 'up'
+          ? Math.max(currentPrice - bet.entryPrice, 0)
+          : Math.max(bet.entryPrice - currentPrice, 0)
+      const adverse =
+        bet.direction === 'up'
+          ? Math.max(bet.entryPrice - currentPrice, 0)
+          : Math.max(currentPrice - bet.entryPrice, 0)
+      const gain = (bet.amount * 100 * favorable) / bet.entryPrice
+      const loss = (bet.amount * 100 * adverse) / bet.entryPrice
+      const totalPnl = loss * 2 >= bet.amount ? -bet.amount : gain - loss
       const won = totalPnl >= 0
-      const pctPnl = ((totalPnl / bet.amount) * 100) || 0
+      const pctPnl = (totalPnl / bet.amount) * 100 || 0
 
       amountNode.textContent = `${pctPnl >= 0 ? '+' : ''}${pctPnl.toFixed(4)}%`
       amountNode.dataset.tone = won ? 'win' : 'lose'
@@ -398,7 +457,7 @@ export function GameScreen({
       detailNode.dataset.tone = won ? 'win' : 'lose'
       hintNode.style.display = 'none'
     },
-    [hasMarketData],
+    [activePosition?.settleAtMs, hasMarketData, protocol.paused],
   )
 
   const resizeCanvas = useCallback(() => {
@@ -458,7 +517,11 @@ export function GameScreen({
         context.font = '13px var(--font-mono), monospace'
         context.fillStyle = '#3e3e5a'
         context.textAlign = 'center'
-        context.fillText('Aguardando dados do oraculo Pyth...', width / 2, height / 2)
+        context.fillText(
+          'Aguardando dados do oraculo Pyth...',
+          width / 2,
+          height / 2,
+        )
         return
       }
 
@@ -498,7 +561,8 @@ export function GameScreen({
       const toX = (timeValue: number) =>
         PAD.left + ((timeValue - timeMin) / timeRange) * chartWidth
       const toY = (priceValue: number) =>
-        PAD.top + (1 - (priceValue - priceMin) / (priceMax - priceMin)) * chartHeight
+        PAD.top +
+        (1 - (priceValue - priceMin) / (priceMax - priceMin)) * chartHeight
 
       context.font = '10px var(--font-mono), monospace'
       context.fillStyle = '#3e3e5a'
@@ -611,7 +675,12 @@ export function GameScreen({
       context.lineTo(toX(renderPoints[0].t), height - PAD.bottom)
       context.closePath()
 
-      const gradient = context.createLinearGradient(0, PAD.top, 0, height - PAD.bottom)
+      const gradient = context.createLinearGradient(
+        0,
+        PAD.top,
+        0,
+        height - PAD.bottom,
+      )
       gradient.addColorStop(0, `rgba(${curveRgb}, 0.25)`)
       gradient.addColorStop(0.5, `rgba(${curveRgb}, 0.10)`)
       gradient.addColorStop(1, `rgba(${curveRgb}, 0)`)
@@ -698,74 +767,27 @@ export function GameScreen({
       context.fillStyle = curveHex
       context.fill()
     },
-    [currentDisplayPrice, hasMarketData, updateOverlay],
+    [currentDisplayPrice, updateOverlay],
   )
 
   const renderLoop = useCallback(
     (now: number) => {
       drawChart(now)
 
-      if (roundStartTimeRef.current) {
-        const elapsed = Date.now() - roundStartTimeRef.current
-        const remaining = Math.max(0, ROUND_DURATION_MS - elapsed)
+      if (activePosition) {
+        const nextMode =
+          Date.now() >= activePosition.settleAtMs ? 'cooldown' : 'open'
 
-        if (remaining <= 0) {
-          roundStartTimeRef.current = null
-          setRoundMode('cooldown')
-
-          const currentPrice = lastConfirmedPriceRef.current
-          const bet = activeBetRef.current
-          let totalPnl = 0
-
-          if (currentPrice !== null && bet) {
-            const priceDiff = currentPrice - bet.entryPrice
-            const pctChange = priceDiff / bet.entryPrice
-            const dirMult = bet.direction === 'down' ? -1 : 1
-            const pnl = bet.amount * pctChange * dirMult * 10
-
-            totalPnl = pnl
-            demoBalanceRef.current += bet.amount + pnl
-
-            const won = totalPnl >= 0
-            const pctResult = (totalPnl / bet.amount) * 100
-            setRoundResult({
-              tone: won ? 'win' : 'lose',
-              text: `${pctResult >= 0 ? '+' : ''}${pctResult.toFixed(4)}%`,
-              sub: `\u{1F985} ${won ? '+US$' : '-US$'}${Math.abs(totalPnl).toFixed(6)}`,
-            })
-          }
-
-          setCurrentBet(null)
-
-          if (nextRoundTimeoutRef.current) {
-            window.clearTimeout(nextRoundTimeoutRef.current)
-          }
-
-          nextRoundTimeoutRef.current = window.setTimeout(() => {
-            if (lastConfirmedPriceRef.current === null) return
-
-            roundNumberRef.current += 1
-            roundStartTimeRef.current = Date.now()
-            firstPriceRef.current = lastConfirmedPriceRef.current
-            chartPointsRef.current = [
-              {
-                t: roundStartTimeRef.current,
-                price: lastConfirmedPriceRef.current,
-              },
-            ]
-
-            setCurrentBet(null)
-            setRoundResult(null)
-            setTradePendingDirection(null)
-            tradePendingDirectionRef.current = null
-            setRoundMode('open')
-          }, 3000)
+        if (roundStateRef.current !== nextMode) {
+          setRoundMode(nextMode)
         }
+      } else if (hasMarketData && roundStateRef.current !== 'open') {
+        setRoundMode('open')
       }
 
       frameRef.current = window.requestAnimationFrame(renderLoop)
     },
-    [drawChart, setCurrentBet, setRoundMode],
+    [activePosition, drawChart, hasMarketData, setRoundMode],
   )
 
   const ingestEntry = useCallback(
@@ -890,7 +912,8 @@ export function GameScreen({
         streamSourceRef.current = null
       }
 
-      if (!liveEnabledRef.current || reconnectTimeoutRef.current !== null) return
+      if (!liveEnabledRef.current || reconnectTimeoutRef.current !== null)
+        return
 
       reconnectTimeoutRef.current = window.setTimeout(() => {
         reconnectTimeoutRef.current = null
@@ -903,21 +926,23 @@ export function GameScreen({
     if (lastConfirmedPriceRef.current === null) return
 
     roundNumberRef.current += 1
-    roundStartTimeRef.current = Date.now()
-    firstPriceRef.current = lastConfirmedPriceRef.current
+    roundStartTimeRef.current = activePosition
+      ? activePosition.openTimeMs
+      : Date.now()
+    firstPriceRef.current =
+      activePosition?.entryPrice ?? lastConfirmedPriceRef.current
     chartPointsRef.current = [
       {
         t: roundStartTimeRef.current,
-        price: lastConfirmedPriceRef.current,
+        price: activePosition?.entryPrice ?? lastConfirmedPriceRef.current,
       },
     ]
 
-    setCurrentBet(null)
     setRoundResult(null)
     setTradePendingDirection(null)
     tradePendingDirectionRef.current = null
     setRoundMode('open')
-  }, [setCurrentBet, setRoundMode])
+  }, [activePosition, setRoundMode])
 
   const handleWalletButtonClick = useCallback(async () => {
     if (wallet.action === 'disconnect') {
@@ -943,8 +968,10 @@ export function GameScreen({
   const handlePlaceBet = useCallback(
     async (direction: Direction) => {
       if (
+        protocol.paused ||
         roundStateRef.current !== 'open' ||
         activeBetRef.current ||
+        isSettlingTrade ||
         tradePendingDirectionRef.current ||
         lastConfirmedPriceRef.current === null
       ) {
@@ -962,7 +989,7 @@ export function GameScreen({
       if (!wallet.connected) {
         setTradeNotice({
           tone: 'error',
-          message: 'Conecte sua carteira para enviar a transferencia de 1 USDC.',
+          message: 'Conecte sua carteira para abrir uma posicao no contrato.',
         })
         await onConnectWallet()
         return
@@ -977,23 +1004,32 @@ export function GameScreen({
         return
       }
 
-      if (
-        wallet.usdcBalanceValue !== null &&
-        wallet.usdcBalanceValue < SIMULATED_TRADE_AMOUNT
-      ) {
+      const amount = clampBet(Number.parseFloat(betAmount) || 0.5)
+
+      if (protocol.maxOpenAmountValue < MIN_BET) {
         setTradeNotice({
           tone: 'error',
-          message: `Voce precisa de pelo menos ${SIMULATED_TRADE_AMOUNT.toFixed(2)} ${monadUsdc.symbol} para enviar essa transferencia.`,
+          message:
+            'O vault nao tem capacidade suficiente agora. Aguarde liquidez livre ou uma posicao ser encerrada.',
         })
         return
       }
 
-      const amount = clampBet(Number.parseFloat(betAmount) || 0.5)
-
-      if (amount > demoBalanceRef.current) {
+      if (amount > protocol.maxOpenAmountValue) {
         setTradeNotice({
           tone: 'error',
-          message: 'Saldo da rodada insuficiente para abrir essa posicao.',
+          message: `Valor acima do maximo atual do vault (${protocol.maxOpenAmountLabel}).`,
+        })
+        return
+      }
+
+      if (
+        wallet.usdcBalanceValue !== null &&
+        wallet.usdcBalanceValue < amount
+      ) {
+        setTradeNotice({
+          tone: 'error',
+          message: `Voce precisa de pelo menos ${amount.toFixed(2)} ${monadUsdc.symbol} para abrir essa posicao.`,
         })
         return
       }
@@ -1002,46 +1038,15 @@ export function GameScreen({
       setTradePendingDirection(direction)
       setTradeNotice({
         tone: 'pending',
-        message: `Confirme a transferencia de ${SIMULATED_TRADE_AMOUNT.toFixed(2)} ${monadUsdc.symbol} na sua carteira...`,
+        message: `Confirme a abertura de ${amount.toFixed(2)} ${monadUsdc.symbol} na sua carteira...`,
       })
 
       try {
-        const simulation = await onSimulateTrade({ direction, amount })
-
-        if (roundStateRef.current !== 'open' || activeBetRef.current) {
-          setTradeNotice({
-            tone: 'error',
-            message: 'A rodada fechou antes da transferencia ser enviada.',
-          })
-          return
-        }
-
-        const livePrice = currentDisplayPrice(performance.now())
-
-        if (livePrice === null) {
-          throw new Error('Preco ao vivo indisponivel.')
-        }
-
-        demoBalanceRef.current -= amount
-
-        const nextBet = {
-          direction,
-          amount,
-          entryPrice: livePrice,
-          entryTime: Date.now(),
-        } satisfies ActiveBet
-
-        setCurrentBet(nextBet)
-        betMarkersRef.current = betMarkersRef.current.concat({
-          t: Date.now(),
-          price: livePrice,
-          amount,
-          direction,
-        })
+        const trade = await onPlaceTrade({ direction, amount })
 
         setTradeNotice({
           tone: 'success',
-          message: `Transferencia enviada: ${simulation.amountLabel} para ${simulation.receiverLabel} (${simulation.transactionLabel}).`,
+          message: `Posicao aberta: ${trade.positionLabel} com ${trade.amountLabel} (${trade.stakeLabel}). Tx ${trade.transactionLabel}${trade.approvalLabel ? ` · Approve ${trade.approvalLabel}` : ''}.`,
         })
 
         if (window.innerWidth <= 768) {
@@ -1059,17 +1064,90 @@ export function GameScreen({
     },
     [
       betAmount,
-      currentDisplayPrice,
+      isSettlingTrade,
       onConnectWallet,
-      onSimulateTrade,
+      onPlaceTrade,
       onSwitchToMonad,
-      setCurrentBet,
+      protocol.paused,
+      protocol.maxOpenAmountLabel,
+      protocol.maxOpenAmountValue,
       wallet.action,
       wallet.connected,
       wallet.connecting,
       wallet.usdcBalanceValue,
     ],
   )
+
+  const handleSettlePosition = useCallback(async () => {
+    if (!activePosition || isSettlingTrade) return
+
+    setIsSettlingTrade(true)
+    setTradeNotice({
+      tone: 'pending',
+      message: `Confirme o encerramento da posicao #${activePosition.id} na sua carteira...`,
+    })
+
+    try {
+      const settlement = await onSettleTrade()
+
+      setRoundResult({
+        tone: settlement.tone,
+        text: `${settlement.pnlPercent >= 0 ? '+' : ''}${settlement.pnlPercent.toFixed(4)}%`,
+        sub: `${settlement.tone === 'win' ? '+US$' : '-US$'}${Math.abs(settlement.pnlValue).toFixed(6)} · Saida ${fmtHi(settlement.exitPrice)}`,
+      })
+
+      setTradeNotice({
+        tone: 'success',
+        message: `Posicao encerrada. Recebido ${settlement.payoutValue.toFixed(2)} ${monadUsdc.symbol} (${settlement.transactionLabel}).`,
+      })
+    } catch (error) {
+      setTradeNotice({
+        tone: 'error',
+        message: getErrorMessage(error),
+      })
+    } finally {
+      setIsSettlingTrade(false)
+    }
+  }, [activePosition, isSettlingTrade, onSettleTrade])
+
+  useEffect(() => {
+    if (!activePosition) {
+      activePositionIdRef.current = null
+      roundStartTimeRef.current = null
+      setCurrentBet(null)
+
+      if (hasMarketData) {
+        setRoundMode('open')
+      }
+
+      return
+    }
+
+    roundStartTimeRef.current = activePosition.openTimeMs
+
+    const nextBet = {
+      id: activePosition.id,
+      direction: activePosition.direction,
+      amount: activePosition.stakeValue,
+      entryPrice: activePosition.entryPrice,
+      entryTime: activePosition.openTimeMs,
+    } satisfies ActiveBet
+
+    setCurrentBet(nextBet)
+
+    if (activePositionIdRef.current !== activePosition.id) {
+      betMarkersRef.current = betMarkersRef.current.concat({
+        id: activePosition.id,
+        t: activePosition.openTimeMs,
+        price: activePosition.entryPrice,
+        amount: activePosition.stakeValue,
+        direction: activePosition.direction,
+      })
+      activePositionIdRef.current = activePosition.id
+    }
+
+    setRoundMode(Date.now() >= activePosition.settleAtMs ? 'cooldown' : 'open')
+  }, [activePosition, hasMarketData, setCurrentBet, setRoundMode])
 
   useEffect(() => {
     resizeCanvas()
@@ -1115,7 +1193,14 @@ export function GameScreen({
 
       window.removeEventListener('resize', resizeCanvas)
     }
-  }, [connectLiveStream, fetchOnce, renderLoop, resizeCanvas, startRound, stopFeedTransports])
+  }, [
+    connectLiveStream,
+    fetchOnce,
+    renderLoop,
+    resizeCanvas,
+    startRound,
+    stopFeedTransports,
+  ])
 
   useEffect(() => {
     if (!addressCopied) return
@@ -1129,18 +1214,23 @@ export function GameScreen({
     }
   }, [addressCopied])
 
-  const reversedCache = useMemo(() => [...deferredCache].reverse(), [deferredCache])
+  const reversedCache = useMemo(
+    () => [...deferredCache].reverse(),
+    [deferredCache],
+  )
 
   const tradeMeta = useMemo(() => {
     if (activeBet) {
-      return `${activeBet.direction === 'up' ? 'ALTA' : 'BAIXA'} US$ ${activeBet.amount.toFixed(2)} ao vivo`
+      return `${activeBet.direction === 'up' ? 'ALTA' : 'BAIXA'} ${activeBet.amount.toFixed(2)} ${monadUsdc.symbol} ao vivo`
     }
 
     if (roundState === 'open') {
       return 'Abra uma posicao de alta ou baixa'
     }
 
-    return hasMarketData ? 'Aguardando a proxima rodada' : 'Conectando ao preco ao vivo'
+    return hasMarketData
+      ? 'Posicao pronta para encerrar'
+      : 'Conectando ao preco ao vivo'
   }, [activeBet, hasMarketData, roundState])
 
   const walletDisabled = !wallet.interactive && !wallet.connected
@@ -1156,8 +1246,15 @@ export function GameScreen({
       : activeBet?.direction === 'down'
         ? 'ABERTA'
         : 'BAIXA'
+  const hasTradeCapacity = protocol.maxOpenAmountValue >= MIN_BET
   const buttonsDisabled =
-    !hasMarketData || roundState !== 'open' || activeBet !== null || tradePendingDirection !== null
+    !hasMarketData ||
+    !hasTradeCapacity ||
+    protocol.paused ||
+    roundState !== 'open' ||
+    activeBet !== null ||
+    isSettlingTrade ||
+    tradePendingDirection !== null
 
   return (
     <main className={styles.root}>
@@ -1212,7 +1309,9 @@ export function GameScreen({
                   {wallet.connecting
                     ? 'Conclua o fluxo da carteira'
                     : wallet.connected
-                      ? wallet.usdcBalanceLabel || wallet.chainLabel || 'Toque para desconectar'
+                      ? wallet.usdcBalanceLabel ||
+                        wallet.chainLabel ||
+                        'Toque para desconectar'
                       : wallet.status || 'Use sua carteira do Farcaster'}
                 </span>
               </span>
@@ -1255,7 +1354,9 @@ export function GameScreen({
                   ? '...'
                   : wallet.connected
                     ? wallet.usdcBalanceLabel ||
-                      (wallet.action === 'switch-chain' ? 'Trocar rede' : '0,00 USDC')
+                      (wallet.action === 'switch-chain'
+                        ? 'Trocar rede'
+                        : '0,00 USDC')
                     : '--'}
               </span>
             </div>
@@ -1341,7 +1442,10 @@ export function GameScreen({
 
             <div className={styles.priceTableWrap}>
               <div className={styles.ptHdr}>
-                Feed do Oraculo Pyth <span>({deferredCache.length}/{MAX})</span>
+                Feed do Oraculo Pyth{' '}
+                <span>
+                  ({deferredCache.length}/{MAX})
+                </span>
               </div>
 
               {reversedCache.length > 0 ? (
@@ -1361,7 +1465,10 @@ export function GameScreen({
                       const originalIndex = deferredCache.length - index - 1
                       const previous = deferredCache[originalIndex - 1]
                       const delta = previous
-                        ? (((entry.price - previous.price) / previous.price) * 100).toFixed(6)
+                        ? (
+                            ((entry.price - previous.price) / previous.price) *
+                            100
+                          ).toFixed(6)
                         : null
                       const deltaClass =
                         delta === null
@@ -1425,15 +1532,91 @@ export function GameScreen({
             <div className={styles.tradePanelBody}>
               <div className={styles.betSidebarHdr}>Operacao</div>
 
+              <div className={styles.protocolCard}>
+                <div className={styles.protocolHeader}>
+                  <span className={styles.protocolTitle}>
+                    Protocolo ao vivo
+                  </span>
+                  <span
+                    className={cn(
+                      styles.protocolStatus,
+                      protocol.paused && styles.protocolStatusPaused,
+                    )}
+                  >
+                    {protocol.loading
+                      ? 'Carregando'
+                      : protocol.paused
+                        ? 'Pausado'
+                        : 'Ativo'}
+                  </span>
+                </div>
+                <div className={styles.protocolGrid}>
+                  <div className={styles.protocolStat}>
+                    <span className={styles.protocolStatLabel}>Oracle</span>
+                    <span className={styles.protocolStatValue}>
+                      {protocol.oraclePriceLabel}
+                    </span>
+                  </div>
+                  <div className={styles.protocolStat}>
+                    <span className={styles.protocolStatLabel}>Duracao</span>
+                    <span className={styles.protocolStatValue}>
+                      {protocol.durationSeconds}s
+                    </span>
+                  </div>
+                  <div className={styles.protocolStat}>
+                    <span className={styles.protocolStatLabel}>Fee</span>
+                    <span className={styles.protocolStatValue}>
+                      {(protocol.feeBps / 100).toFixed(2)}%
+                    </span>
+                  </div>
+                  <div className={styles.protocolStat}>
+                    <span className={styles.protocolStatLabel}>Max payout</span>
+                    <span className={styles.protocolStatValue}>
+                      {protocol.maxPayoutLabel}
+                    </span>
+                  </div>
+                  <div className={styles.protocolStat}>
+                    <span className={styles.protocolStatLabel}>Max agora</span>
+                    <span className={styles.protocolStatValue}>
+                      {protocol.maxOpenAmountLabel}
+                    </span>
+                  </div>
+                  <div className={styles.protocolStat}>
+                    <span className={styles.protocolStatLabel}>TVL vault</span>
+                    <span className={styles.protocolStatValue}>
+                      {protocol.vaultTvlLabel}
+                    </span>
+                  </div>
+                  <div className={styles.protocolStat}>
+                    <span className={styles.protocolStatLabel}>Locked</span>
+                    <span className={styles.protocolStatValue}>
+                      {protocol.vaultLockedLabel}
+                    </span>
+                  </div>
+                </div>
+                <div className={styles.protocolMeta}>
+                  Utilizacao {protocol.utilizationLabel}
+                </div>
+                {protocol.error ? (
+                  <div className={styles.protocolError}>{protocol.error}</div>
+                ) : null}
+              </div>
+
               <div className={styles.betCard}>
                 <div className={styles.tradeCopyTitle}>Defina sua posicao</div>
-                <div className={styles.tradeCopySub}>Um valor. Escolha um lado.</div>
+                <div className={styles.tradeCopySub}>
+                  Um valor. Escolha um lado. O contrato abre uma posicao real em
+                  USDC na Monad. Maximo disponivel agora:{' '}
+                  {protocol.maxOpenAmountLabel}.
+                </div>
                 <div
                   className={cn(
                     styles.tradeCallout,
-                    tradeNotice.tone === 'pending' && styles.tradeCalloutPending,
+                    tradeNotice.tone === 'pending' &&
+                      styles.tradeCalloutPending,
                     tradeNotice.tone === 'error' && styles.tradeCalloutError,
-                    tradeNotice.tone === 'success' && styles.tradeCalloutSuccess,
+                    tradeNotice.tone === 'success' &&
+                      styles.tradeCalloutSuccess,
                   )}
                 >
                   {tradeNotice.message}
@@ -1447,7 +1630,10 @@ export function GameScreen({
                       inputMode="decimal"
                       step="0.1"
                       min={MIN_BET}
-                      max={MAX_BET}
+                      max={Math.min(
+                        MAX_BET,
+                        Math.max(protocol.maxOpenAmountValue, MIN_BET),
+                      )}
                       value={betAmount}
                       onChange={(event) =>
                         setBetAmount(event.currentTarget.value)
@@ -1459,7 +1645,9 @@ export function GameScreen({
                       className={styles.bpAdj}
                       onClick={() =>
                         setBetAmount((value) =>
-                          clampBet((Number.parseFloat(value) || 0.5) - 0.1).toFixed(2),
+                          clampBet(
+                            (Number.parseFloat(value) || 0.5) - 0.1,
+                          ).toFixed(2),
                         )
                       }
                     >
@@ -1470,7 +1658,9 @@ export function GameScreen({
                       className={styles.bpAdj}
                       onClick={() =>
                         setBetAmount((value) =>
-                          clampBet((Number.parseFloat(value) || 0.5) + 0.1).toFixed(2),
+                          clampBet(
+                            (Number.parseFloat(value) || 0.5) + 0.1,
+                          ).toFixed(2),
                         )
                       }
                     >
@@ -1486,6 +1676,7 @@ export function GameScreen({
                       type="button"
                       className={styles.bpQuickButton}
                       onClick={() => setBetAmount(clampBet(value).toFixed(2))}
+                      disabled={value > protocol.maxOpenAmountValue}
                     >
                       {value < 1 ? `${Math.round(value * 100)}c` : 'US$ 1'}
                     </button>
@@ -1521,27 +1712,80 @@ export function GameScreen({
               <div
                 className={cn(
                   styles.betActiveStatus,
-                  activeBet && styles.betActiveStatusShow,
+                  activePosition && styles.betActiveStatusShow,
                 )}
               >
                 <div
                   className={cn(
                     styles.basDir,
-                    activeBet?.direction === 'up' && styles.basDirUp,
-                    activeBet?.direction === 'down' && styles.basDirDown,
+                    activePosition?.direction === 'up' && styles.basDirUp,
+                    activePosition?.direction === 'down' && styles.basDirDown,
                   )}
                 >
-                  {activeBet?.direction === 'up'
+                  {activePosition?.direction === 'up'
                     ? '▲ ALTA'
-                    : activeBet?.direction === 'down'
+                    : activePosition?.direction === 'down'
                       ? '▼ BAIXA'
                       : ''}
                 </div>
                 <div className={styles.basAmt}>
-                  {activeBet
-                    ? `US$ ${activeBet.amount.toFixed(2)} @ ${fmtHi(activeBet.entryPrice)}`
+                  {activePosition
+                    ? `${activePosition.stakeLabel} @ ${fmtHi(activePosition.entryPrice)}`
                     : ''}
                 </div>
+                {activePosition ? (
+                  <div className={styles.positionGrid}>
+                    <div className={styles.positionStat}>
+                      <span className={styles.positionStatLabel}>Posicao</span>
+                      <span className={styles.positionStatValue}>
+                        #{activePosition.id}
+                      </span>
+                    </div>
+                    <div className={styles.positionStat}>
+                      <span className={styles.positionStatLabel}>
+                        Liquidacao
+                      </span>
+                      <span className={styles.positionStatValue}>
+                        {fmtHi(activePosition.liquidationPrice)}
+                      </span>
+                    </div>
+                    <div className={styles.positionStat}>
+                      <span className={styles.positionStatLabel}>Payout</span>
+                      <span className={styles.positionStatValue}>
+                        {activePosition.contractPayoutLabel}
+                      </span>
+                    </div>
+                    <div className={styles.positionStat}>
+                      <span className={styles.positionStatLabel}>PnL</span>
+                      <span
+                        className={cn(
+                          styles.positionStatValue,
+                          activePosition.pnlValue >= 0
+                            ? styles.positionStatWin
+                            : styles.positionStatLose,
+                        )}
+                      >
+                        {activePosition.pnlValue >= 0 ? '+' : ''}
+                        {activePosition.pnlValue.toFixed(2)} {monadUsdc.symbol}
+                      </span>
+                    </div>
+                  </div>
+                ) : null}
+                {activePosition ? (
+                  <button
+                    type="button"
+                    className={cn(
+                      styles.settleButton,
+                      styles.settleButtonReady,
+                    )}
+                    onClick={() => {
+                      void handleSettlePosition()
+                    }}
+                    disabled={isSettlingTrade}
+                  >
+                    {isSettlingTrade ? 'Encerrando...' : 'Encerrar posicao'}
+                  </button>
+                ) : null}
               </div>
             </div>
           </aside>

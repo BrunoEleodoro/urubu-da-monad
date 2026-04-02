@@ -7,6 +7,7 @@ import {
 
 import { Authentication, Registration } from 'webauthx/server'
 import {
+  createPublicClient,
   createWalletClient,
   erc20Abi,
   http,
@@ -23,6 +24,7 @@ import {
   PASSKEY_SESSION_MAX_AGE,
   type PasskeyWalletSnapshot,
 } from '@/lib/passkey-wallet'
+import { binaryAbi, binaryContractAddress } from '@/lib/protocol'
 
 const WALLET_COOKIE = 'urubu_passkey_wallet'
 const SESSION_COOKIE = 'urubu_passkey_session'
@@ -82,6 +84,11 @@ export type CookieMutation =
       options: Parameters<CookieWriter['set']>[0]
       type: 'set'
     }
+
+const publicClient = createPublicClient({
+  chain: monadMainnet,
+  transport: http(monadMainnet.rpcUrls.default.http[0]),
+})
 
 function getPasskeyOrigin() {
   return process.env.PASSKEY_ORIGIN ?? 'https://urubu.money'
@@ -214,6 +221,39 @@ export function getSnapshot(cookieStore: CookieReader): PasskeyWalletSnapshot {
     connected,
     hasWallet: Boolean(wallet),
     label: wallet?.label ?? null,
+  }
+}
+
+function createAuthenticatedPasskeyClient(cookieStore: CookieReader) {
+  const wallet = getWallet(cookieStore)
+  const session = getSession(cookieStore)
+
+  if (!wallet || !session) {
+    throw new Error('Desbloqueie sua carteira com passkey primeiro.')
+  }
+
+  if (wallet.address.toLowerCase() !== session.address.toLowerCase()) {
+    throw new Error('A sessao da carteira nao bate. Desbloqueie novamente.')
+  }
+
+  if (Date.now() - session.verifiedAt > PASSKEY_RECENT_AUTH_WINDOW_MS) {
+    throw new Error('A confirmacao da passkey expirou. Confirme de novo.')
+  }
+
+  if (!isAddress(wallet.address)) {
+    throw new Error('Endereco da carteira com passkey invalido.')
+  }
+
+  const account = privateKeyToAccount(wallet.privateKey as Hex)
+  const client = createWalletClient({
+    account,
+    chain: monadMainnet,
+    transport: http(monadMainnet.rpcUrls.default.http[0]),
+  })
+
+  return {
+    account,
+    client,
   }
 }
 
@@ -388,22 +428,7 @@ export async function sendUsdcTransfer(
   recipient: Address,
   tokenAddress: Address,
 ) {
-  const wallet = getWallet(cookieStore)
-  const session = getSession(cookieStore)
-
-  if (!wallet || !session) {
-    throw new Error('Desbloqueie sua carteira com passkey primeiro.')
-  }
-
-  if (wallet.address.toLowerCase() !== session.address.toLowerCase()) {
-    throw new Error('A sessao da carteira nao bate. Desbloqueie novamente.')
-  }
-
-  if (Date.now() - session.verifiedAt > PASSKEY_RECENT_AUTH_WINDOW_MS) {
-    throw new Error('A confirmacao da passkey expirou. Confirme de novo.')
-  }
-
-  if (!isAddress(wallet.address) || !isAddress(recipient) || !isAddress(tokenAddress)) {
+  if (!isAddress(recipient) || !isAddress(tokenAddress)) {
     throw new Error('Payload de transferencia invalido.')
   }
 
@@ -411,17 +436,85 @@ export async function sendUsdcTransfer(
     throw new Error('So transferencias de USDC na Monad sao suportadas.')
   }
 
-  const account = privateKeyToAccount(wallet.privateKey as Hex)
-  const client = createWalletClient({
-    account,
-    chain: monadMainnet,
-    transport: http(monadMainnet.rpcUrls.default.http[0]),
-  })
+  const { client } = createAuthenticatedPasskeyClient(cookieStore)
 
   return client.writeContract({
     abi: erc20Abi,
     address: tokenAddress,
     args: [recipient, amount],
     functionName: 'transfer',
+  })
+}
+
+export async function openPasskeyPosition(
+  cookieStore: CookieReader,
+  {
+    amount,
+    contractAddress,
+    isLong,
+    tokenAddress,
+  }: {
+    amount: bigint
+    contractAddress: Address
+    isLong: boolean
+    tokenAddress: Address
+  },
+) {
+  if (
+    contractAddress.toLowerCase() !== binaryContractAddress.toLowerCase() ||
+    tokenAddress.toLowerCase() !== monadUsdc.address.toLowerCase()
+  ) {
+    throw new Error('Esse app so suporta o Binary oficial com USDC na Monad.')
+  }
+
+  const { account, client } = createAuthenticatedPasskeyClient(cookieStore)
+
+  const allowance = await publicClient.readContract({
+    address: tokenAddress,
+    abi: erc20Abi,
+    functionName: 'allowance',
+    args: [account.address, contractAddress],
+  })
+
+  let approvalHash: Hex | null = null
+
+  if (allowance < amount) {
+    approvalHash = await client.writeContract({
+      abi: erc20Abi,
+      address: tokenAddress,
+      args: [contractAddress, amount],
+      functionName: 'approve',
+    })
+  }
+
+  const openHash = await client.writeContract({
+    abi: binaryAbi,
+    address: contractAddress,
+    args: [isLong, amount],
+    functionName: 'openPosition',
+  })
+
+  return {
+    approvalHash,
+    openHash,
+  }
+}
+
+export async function settlePasskeyPosition(
+  cookieStore: CookieReader,
+  contractAddress: Address,
+  positionId: bigint,
+) {
+  if (contractAddress.toLowerCase() !== binaryContractAddress.toLowerCase()) {
+    throw new Error('Esse app so suporta o Binary oficial na Monad.')
+  }
+
+  const { client } = createAuthenticatedPasskeyClient(cookieStore)
+
+  return client.writeContract({
+    abi: binaryAbi,
+    address: contractAddress,
+    args: [positionId],
+    functionName: 'settle',
   })
 }
